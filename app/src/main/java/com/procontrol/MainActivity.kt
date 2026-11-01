@@ -368,6 +368,10 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(8), dp(16), dp(8))
         }
+        box.addView(Button(this).apply {
+            text = "Открыть отдельный период"
+            setOnClickListener { createOpenArchivePeriod() }
+        })
         val history = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
         if (history.length() > 0 || archiveEditing) {
             val historicalCard = card()
@@ -428,7 +432,7 @@ class MainActivity : Activity() {
                 val average = if (days > 0) pay / days else 0.0
                 val record = card()
                 val periodNumber = item.optInt("number", i + 1)
-                record.addView(label(item.optString("name", "Период $periodNumber"), 17f, 0xFF17243A.toInt(), true))
+                record.addView(label(item.optString("name", "Период $periodNumber") + if (item.optBoolean("open", false)) " · ОТКРЫТ" else "", 17f, 0xFF17243A.toInt(), true))
                 record.addView(label(formatDate(start) + " - " + formatDate(end), 13f, 0xFF68758A.toInt()))
                 record.addView(label("Прошло дней: " + days, 13f, 0xFF68758A.toInt()))
                 record.addView(label("Заработано: " + money(pay) + " сом", 19f, 0xFF087B58.toInt(), true))
@@ -440,7 +444,7 @@ class MainActivity : Activity() {
                         val e = saved.optJSONObject(j) ?: continue
                         val line = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
                         line.addView(label(formatDate(e.optString("date")) + " · " + qty(e.optDouble("clean")) + " кг · брак " + qty(e.optDouble("scrap")) + " кг", 12f, 0xFF34445B.toInt()), LinearLayout.LayoutParams(0, -2, 1f))
-                        if (archiveEditing) line.addView(Button(this).apply {
+                        if (archiveEditing || item.optBoolean("open", false)) line.addView(Button(this).apply {
                             text = "⋮"
                             setOnClickListener {
                                 AlertDialog.Builder(this@MainActivity)
@@ -466,9 +470,13 @@ class MainActivity : Activity() {
                         record.addView(line)
                     }
                 }
-                if (archiveEditing) record.addView(Button(this).apply {
+                if (archiveEditing || item.optBoolean("open", false)) record.addView(Button(this).apply {
                     text = "Добавить смену в этот период"
                     setOnClickListener { addArchivedRecord(i) }
+                })
+                if (item.optBoolean("open", false)) record.addView(Button(this).apply {
+                    text = "Закрыть этот период"
+                    setOnClickListener { closeSeparatePeriod(i) }
                 })
                 box.addView(record)
             }
@@ -476,6 +484,52 @@ class MainActivity : Activity() {
         val scroll = ScrollView(this).apply { addView(box) }
         AlertDialog.Builder(this).setTitle("История расчётных периодов").setView(scroll)
             .setPositiveButton("Закрыть", null).show()
+    }
+
+    private fun createOpenArchivePeriod() {
+        var start = dateFormat.format(Date())
+        var end = start
+        val startButton = Button(this).apply { text = "Начало: " + formatDate(start) }
+        val endButton = Button(this).apply { text = "Окончание: " + formatDate(end) }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+            addView(fieldCaption("Период с")); addView(startButton, matchWrap())
+            addView(fieldCaption("Период по")); addView(endButton, matchWrap())
+        }
+        startButton.setOnClickListener { showDatePicker(start) { start = it; startButton.text = "Начало: " + formatDate(it) } }
+        endButton.setOnClickListener { showDatePicker(end) { end = it; endButton.text = "Окончание: " + formatDate(it) } }
+        AlertDialog.Builder(this).setTitle("Открыть отдельный период").setView(box)
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Открыть") { _, _ ->
+                if (!validDate(start) || !validDate(end) || start > end) {
+                    toast("Проверь даты начала и окончания")
+                    return@setPositiveButton
+                }
+                val archive = JSONArray(prefs.getString("archive", "[]") ?: "[]")
+                val number = nextPeriodNumber(archive)
+                archive.put(JSONObject().put("number", number).put("name", "Период $number")
+                    .put("start", start).put("end", end).put("clean", 0.0).put("scrap", 0.0)
+                    .put("records", JSONArray()).put("open", true))
+                prefs.edit().putString("archive", archive.toString()).apply()
+                selectedArchiveIndex = archive.length() - 1
+                showArchive()
+            }.show()
+    }
+
+    private fun closeSeparatePeriod(index: Int) {
+        val archive = JSONArray(prefs.getString("archive", "[]") ?: "[]")
+        val period = archive.optJSONObject(index) ?: return
+        if (!period.optBoolean("open", false)) return
+        AlertDialog.Builder(this).setTitle("Закрыть " + period.optString("name"))
+            .setMessage("Период будет закрыт и останется в архиве. Записи сохранятся.")
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Закрыть") { _, _ ->
+                period.put("open", false)
+                archive.put(index, period)
+                prefs.edit().putString("archive", archive.toString()).apply()
+                showArchive()
+            }.show()
     }
 
     private fun addHistoricalRecord() {
@@ -555,15 +609,17 @@ class MainActivity : Activity() {
     private fun addArchivedRecord(periodIndex: Int) {
         val a = JSONArray(prefs.getString("archive", "[]") ?: "[]")
         val period = a.optJSONObject(periodIndex) ?: return
-        val date = EditText(this).apply { hint = "ГГГГ-ММ-ДД" }
+        var selectedDate = period.optString("start")
+        val date = Button(this).apply { text = formatDate(selectedDate) }
+        date.setOnClickListener { showDatePicker(selectedDate) { selectedDate = it; date.text = formatDate(it) } }
         val clean = numberInput("Чистая продукция, кг").apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER }
         val scrap = numberInput("Брак, кг").apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER }
         val note = EditText(this).apply { hint = "Комментарий" }
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), 0)
-            addView(date); addView(clean); addView(scrap); addView(note) }
-        AlertDialog.Builder(this).setTitle("Добавить смену в архив").setView(box)
+            addView(fieldCaption("Дата смены")); addView(date); addView(clean); addView(scrap); addView(note) }
+        AlertDialog.Builder(this).setTitle("Добавить смену в " + period.optString("name", "период")).setView(box)
             .setNegativeButton("Отмена", null).setPositiveButton("Добавить") { _, _ ->
-                val d = date.text.toString().trim()
+                val d = selectedDate
                 val cv = clean.text.toString().toLongOrNull()
                 val sv = scrap.text.toString().toLongOrNull()
                 if (!validDate(d) || d < period.optString("start") || d > period.optString("end") || cv == null || sv == null || cv < 0 || sv < 0) {
