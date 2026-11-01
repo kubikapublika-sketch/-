@@ -12,6 +12,7 @@ import android.view.ScaleGestureDetector
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.Gravity
+import android.view.View
 import android.widget.*
 import org.json.JSONArray
 import org.json.JSONObject
