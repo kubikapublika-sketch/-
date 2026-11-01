@@ -492,7 +492,7 @@ class MainActivity : Activity() {
                 val c = clean.text.toString().replace(',', '.').toDoubleOrNull()
                 val b = scrap.text.toString().replace(',', '.').toDoubleOrNull()
                 if (!validDate(d) || c == null || b == null || c < 0 || b < 0) { toast("Проверь дату и тоннаж"); return@setPositiveButton }
-                if (allKnownDatesExcept(old.optString("date")).contains(d)) { toast("За эту дату уже есть запись"); return@setPositiveButton }
+                if (allStoredDatesExcept(old.optString("date")).contains(d)) { toast("За эту дату уже есть запись"); return@setPositiveButton }
                 h.put(index, JSONObject().put("date", d).put("clean", c).put("scrap", b).put("note", note.text.toString().trim()))
                 prefs.edit().putString("historical_entries", h.toString()).apply()
                 showArchive()
