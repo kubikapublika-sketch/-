@@ -379,14 +379,7 @@ class MainActivity : Activity() {
                 text = "Поделиться чеком"
                 isAllCaps = false
                 setOnClickListener {
-                    val cleanKg = cleanInput.text.toString().replace(',', '.').toDoubleOrNull()
-                    val scrapKg = scrapInput.text.toString().replace(',', '.').toDoubleOrNull()
-                    if (cleanKg == null || scrapKg == null || cleanKg < 0 || scrapKg < 0) {
-                        toast("Проверь значения чистой продукции и брака")
-                    } else {
-                        saveCalendarEntry(Entry(date, cleanKg / 1000.0, scrapKg / 1000.0, noteInput.text.toString().trim()))
-                        shareProductionReceipt(date)
-                    }
+                    shareProductionReceipt(date)
                 }
             }, matchWrap())
         }
