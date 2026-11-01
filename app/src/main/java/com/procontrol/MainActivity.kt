@@ -20,6 +20,7 @@ class MainActivity : Activity() {
     private var scrapRate = 75.0
     private var entries = mutableListOf<Entry>()
     private var periodStart = ""
+    private var archiveEditing = false
 
     data class Entry(val date: String, val clean: Double, val scrap: Double, val note: String)
 
@@ -30,6 +31,7 @@ class MainActivity : Activity() {
         periodStart = prefs.getString("period_start", null) ?: dateFormat.format(Date()).also {
             prefs.edit().putString("period_start", it).apply()
         }
+        archiveEditing = prefs.getBoolean("archive_editing", false)
         loadEntries()
         render()
     }
@@ -260,9 +262,14 @@ class MainActivity : Activity() {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0) }
         val clean = numberInput("Сом за тонну").apply { setText(cleanRate.toString()) }
         val scrap = numberInput("Сом за тонну").apply { setText(scrapRate.toString()) }
+        val archiveSwitch = Switch(this).apply {
+            text = "Разрешить редактирование закрытых периодов"
+            isChecked = archiveEditing
+        }
         box.addView(fieldCaption("Тариф чистой продукции, сом/т")); box.addView(clean, matchWrap())
         box.addView(fieldCaption("Тариф брака, сом/т")); box.addView(scrap, matchWrap())
-        AlertDialog.Builder(this).setTitle("Настройка тарифов").setView(box)
+        box.addView(archiveSwitch)
+        AlertDialog.Builder(this).setTitle("Настройки").setView(box)
             .setNegativeButton("Отмена", null)
             .setPositiveButton("Сохранить") { _, _ ->
                 val c = clean.text.toString().replace(',', '.').toDoubleOrNull()
@@ -270,7 +277,9 @@ class MainActivity : Activity() {
                 if (c == null || s == null || c < 0 || s < 0) toast("Некорректный тариф")
                 else {
                     cleanRate = c; scrapRate = s
-                    prefs.edit().putString("clean_rate", c.toString()).putString("scrap_rate", s.toString()).apply()
+                    archiveEditing = archiveSwitch.isChecked
+                    prefs.edit().putString("clean_rate", c.toString()).putString("scrap_rate", s.toString())
+                        .putBoolean("archive_editing", archiveEditing).apply()
                     render()
                 }
             }.show()
