@@ -138,7 +138,10 @@ class MainActivity : Activity() {
         root.addView(summary)
         root.addView(Button(this).apply {
             text = "Поделиться чеком"
-            setOnClickListener { shareProductionReceipt() }
+            setOnClickListener {
+                val today = dateFormat.format(Date())
+                showDatePicker(today) { selectedDate -> shareProductionReceipt(selectedDate) }
+            }
             layoutParams = LinearLayout.LayoutParams(-1, dp(44)).apply { bottomMargin = dp(8) }
         })
 
@@ -263,25 +266,52 @@ class MainActivity : Activity() {
         return null
     }
 
-    private fun shareProductionReceipt() {
+    private fun shareProductionReceipt(selectedDate: String) {
         if (Build.VERSION.SDK_INT < 29) {
             toast("Для отправки картинки требуется Android 10 или новее")
             return
         }
-        val today = dateFormat.format(Date())
-        val todayEntry = findCalendarEntry(today)
-        if (todayEntry == null) { toast("Сначала внеси сегодняшние показатели"); return }
-        val yesterdayCal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_MONTH, -1) }
-        val yesterdayEntry = findCalendarEntry(dateFormat.format(yesterdayCal.time))
-        val todayWeight = todayEntry.clean + todayEntry.scrap
-        val yesterdayWeight = yesterdayEntry?.let { it.clean + it.scrap }
-        val isGreen = yesterdayWeight == null || todayWeight >= yesterdayWeight
-        val background = if (isGreen) Color.rgb(235, 249, 237) else Color.rgb(255, 238, 238)
-        val accent = if (isGreen) Color.rgb(34, 150, 75) else Color.rgb(205, 55, 55)
-        val periodClean = entries.sumOf { it.clean }
-        val periodScrap = entries.sumOf { it.scrap }
+        val selectedEntry = findCalendarEntry(selectedDate)
+        if (selectedEntry == null) { toast("За выбранную дату нет записи"); return }
+        val previousCal = java.util.Calendar.getInstance().apply {
+            time = dateFormat.parse(selectedDate) ?: Date()
+            add(java.util.Calendar.DAY_OF_MONTH, -1)
+        }
+        val previousEntry = findCalendarEntry(dateFormat.format(previousCal.time))
+        val selectedWeight = selectedEntry.clean + selectedEntry.scrap
+        val previousWeight = previousEntry?.let { it.clean + it.scrap }
+        val isGreen = previousWeight == null || selectedWeight >= previousWeight
+
+        var periodClean = 0.0
+        var periodScrap = 0.0
+        if (selectedDate >= periodStart && selectedDate <= dateFormat.format(Date())) {
+            periodClean = entries.sumOf { it.clean }
+            periodScrap = entries.sumOf { it.scrap }
+        } else {
+            val archive = JSONArray(prefs.getString("archive", "[]") ?: "[]")
+            var matchingRecords: JSONArray? = null
+            for (i in 0 until archive.length()) {
+                val period = archive.optJSONObject(i) ?: continue
+                val records = period.optJSONArray("records") ?: continue
+                val inRange = selectedDate >= period.optString("start") && selectedDate <= period.optString("end")
+                val hasDate = (0 until records.length()).any { records.optJSONObject(it)?.optString("date") == selectedDate }
+                if (inRange || hasDate) { matchingRecords = records; break }
+            }
+            if (matchingRecords != null) {
+                for (i in 0 until matchingRecords.length()) {
+                    val item = matchingRecords.optJSONObject(i) ?: continue
+                    periodClean += item.optDouble("clean")
+                    periodScrap += item.optDouble("scrap")
+                }
+            } else {
+                periodClean = selectedEntry.clean
+                periodScrap = selectedEntry.scrap
+            }
+        }
         val periodWeight = periodClean + periodScrap
         val periodScrapPercent = if (periodWeight > 0.0) periodScrap * 100.0 / periodWeight else 0.0
+        val background = if (isGreen) Color.rgb(235, 249, 237) else Color.rgb(255, 238, 238)
+        val accent = if (isGreen) Color.rgb(34, 150, 75) else Color.rgb(205, 55, 55)
 
         val bitmap = Bitmap.createBitmap(900, 520, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -298,11 +328,11 @@ class MainActivity : Activity() {
         val muted = Color.rgb(100, 115, 105)
         drawText("PROCONTROL", 58f, 82f, 34f, dark, true)
         drawText(if (isGreen) "▲ РОСТ" else "▼ СНИЖЕНИЕ", 670f, 82f, 25f, accent, true)
-        drawText(formatDate(today), 58f, 124f, 22f, muted)
-        drawText(qty(todayEntry.clean) + " кг", 58f, 220f, 72f, accent, true)
-        drawText("Чистая продукция сегодня", 60f, 258f, 24f, muted)
-        drawText("Брак: " + qty(todayEntry.scrap) + " кг", 60f, 315f, 28f, dark, true)
-        drawText("Общий вес: " + qty(todayWeight) + " кг", 470f, 315f, 28f, dark, true)
+        drawText(formatDate(selectedDate), 58f, 124f, 22f, muted)
+        drawText(qty(selectedEntry.clean) + " кг", 58f, 220f, 72f, accent, true)
+        drawText("Чистая продукция за день", 60f, 258f, 24f, muted)
+        drawText("Брак: " + qty(selectedEntry.scrap) + " кг", 60f, 315f, 28f, dark, true)
+        drawText("Общий вес: " + qty(selectedWeight) + " кг", 470f, 315f, 28f, dark, true)
         paint.color = if (isGreen) Color.rgb(199, 230, 202) else Color.rgb(244, 203, 203)
         canvas.drawLine(58f, 350f, 842f, 350f, paint)
         drawText("ЗА ПЕРИОД", 58f, 395f, 22f, muted, true)
@@ -313,7 +343,7 @@ class MainActivity : Activity() {
 
         try {
             val values = ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME, "ProControl_${today}.png")
+                put(MediaStore.Images.Media.DISPLAY_NAME, "ProControl_${selectedDate}.png")
                 put(MediaStore.Images.Media.MIME_TYPE, "image/png")
                 put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/ProControl")
             }
