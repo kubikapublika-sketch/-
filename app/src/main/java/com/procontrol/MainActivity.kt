@@ -239,23 +239,121 @@ class MainActivity : Activity() {
                 val item = archive.getJSONObject(i)
                 val start = item.optString("start")
                 val end = item.optString("end")
-                val days = item.optInt("days")
-                val pay = item.optDouble("pay")
-                val average = item.optDouble("averagePerDay")
+                val days = calendarDaysBetween(start, end)
                 val clean = item.optDouble("clean")
                 val scrap = item.optDouble("scrap")
+                val pay = clean * cleanRate + scrap * scrapRate
+                val average = if (days > 0) pay / days else 0.0
                 val record = card()
                 record.addView(label(formatDate(start) + " - " + formatDate(end), 15f, 0xFF17243A.toInt(), true))
                 record.addView(label("Прошло дней: " + days, 13f, 0xFF68758A.toInt()))
                 record.addView(label("Заработано: " + money(pay) + " сом", 19f, 0xFF087B58.toInt(), true))
                 record.addView(label("В среднем: " + money(average) + " сом/день", 15f, 0xFF1557A6.toInt(), true))
                 record.addView(label("Чистая продукция: " + qty(clean) + " т · Брак: " + qty(scrap) + " т", 12f, 0xFF68758A.toInt()))
+                val saved = item.optJSONArray("records") ?: JSONArray()
+                if (saved.length() > 0) {
+                    for (j in 0 until saved.length()) {
+                        val e = saved.optJSONObject(j) ?: continue
+                        val line = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+                        line.addView(label(formatDate(e.optString("date")) + " · " + qty(e.optDouble("clean")) + " т · брак " + qty(e.optDouble("scrap")) + " т", 12f, 0xFF34445B.toInt()), LinearLayout.LayoutParams(0, -2, 1f))
+                        if (archiveEditing) line.addView(Button(this).apply {
+                            text = "⋮"
+                            setOnClickListener { editArchivedRecord(i, j) }
+                        })
+                        record.addView(line)
+                    }
+                }
+                if (archiveEditing) record.addView(Button(this).apply {
+                    text = "Добавить смену в этот период"
+                    setOnClickListener { addArchivedRecord(i) }
+                })
                 box.addView(record)
             }
         }
         val scroll = ScrollView(this).apply { addView(box) }
         AlertDialog.Builder(this).setTitle("История расчётных периодов").setView(scroll)
             .setPositiveButton("Закрыть", null).show()
+    }
+
+    private fun editArchivedRecord(periodIndex: Int, recordIndex: Int) {
+        val a = JSONArray(prefs.getString("archive", "[]") ?: "[]")
+        val period = a.optJSONObject(periodIndex) ?: return
+        val records = period.optJSONArray("records") ?: JSONArray()
+        val old = records.optJSONObject(recordIndex) ?: return
+        val date = EditText(this).apply { setText(old.optString("date")) }
+        val clean = numberInput("Чистая продукция, т").apply { setText(old.optDouble("clean").toString()) }
+        val scrap = numberInput("Брак, т").apply { setText(old.optDouble("scrap").toString()) }
+        val note = EditText(this).apply { setText(old.optString("note")); hint = "Комментарий" }
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), 0)
+            addView(fieldCaption("Дата ГГГГ-ММ-ДД")); addView(date); addView(fieldCaption("Чистая, т")); addView(clean)
+            addView(fieldCaption("Брак, т")); addView(scrap); addView(fieldCaption("Комментарий")); addView(note) }
+        AlertDialog.Builder(this).setTitle("Изменить запись архива").setView(box)
+            .setNegativeButton("Отмена", null).setPositiveButton("Сохранить") { _, _ ->
+                val d = date.text.toString().trim()
+                val cv = clean.text.toString().replace(',', '.').toDoubleOrNull()
+                val sv = scrap.text.toString().replace(',', '.').toDoubleOrNull()
+                if (!validDate(d) || cv == null || sv == null || cv < 0 || sv < 0) { toast("Проверь дату и тоннаж"); return@setPositiveButton }
+                if (d < period.optString("start") || d > period.optString("end")) { toast("Дата должна оставаться внутри этого периода"); return@setPositiveButton }
+                if (allStoredDatesExcept(old.optString("date")).contains(d)) { toast("За эту дату уже есть запись"); return@setPositiveButton }
+                records.put(recordIndex, JSONObject().put("date", d).put("clean", cv).put("scrap", sv).put("note", note.text.toString().trim()))
+                period.put("records", records)
+                period.put("clean", sumRecords(records, "clean")).put("scrap", sumRecords(records, "scrap"))
+                a.put(periodIndex, period)
+                prefs.edit().putString("archive", a.toString()).apply()
+                showArchive()
+            }.show()
+    }
+
+    private fun addArchivedRecord(periodIndex: Int) {
+        val a = JSONArray(prefs.getString("archive", "[]") ?: "[]")
+        val period = a.optJSONObject(periodIndex) ?: return
+        val date = EditText(this).apply { hint = "ГГГГ-ММ-ДД" }
+        val clean = numberInput("Чистая продукция, т")
+        val scrap = numberInput("Брак, т")
+        val note = EditText(this).apply { hint = "Комментарий" }
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), 0)
+            addView(date); addView(clean); addView(scrap); addView(note) }
+        AlertDialog.Builder(this).setTitle("Добавить смену в архив").setView(box)
+            .setNegativeButton("Отмена", null).setPositiveButton("Добавить") { _, _ ->
+                val d = date.text.toString().trim()
+                val cv = clean.text.toString().replace(',', '.').toDoubleOrNull()
+                val sv = scrap.text.toString().replace(',', '.').toDoubleOrNull()
+                if (!validDate(d) || d < period.optString("start") || d > period.optString("end") || cv == null || sv == null || cv < 0 || sv < 0) {
+                    toast("Проверь дату и значения"); return@setPositiveButton
+                }
+                if (allStoredDatesExcept("").contains(d)) { toast("За эту дату уже есть запись"); return@setPositiveButton }
+                val records = period.optJSONArray("records") ?: JSONArray()
+                records.put(JSONObject().put("date", d).put("clean", cv).put("scrap", sv).put("note", note.text.toString().trim()))
+                period.put("records", records).put("clean", sumRecords(records, "clean")).put("scrap", sumRecords(records, "scrap"))
+                a.put(periodIndex, period)
+                prefs.edit().putString("archive", a.toString()).apply()
+                showArchive()
+            }.show()
+    }
+
+    private fun sumRecords(a: JSONArray, key: String): Double {
+        var total = 0.0
+        for (i in 0 until a.length()) total += a.optJSONObject(i)?.optDouble(key, 0.0) ?: 0.0
+        return total
+    }
+
+    private fun allStoredDatesExcept(except: String): Set<String> {
+        val dates = entries.map { it.date }.filter { it != except }.toMutableSet()
+        val a = JSONArray(prefs.getString("archive", "[]") ?: "[]")
+        for (i in 0 until a.length()) {
+            val records = a.optJSONObject(i)?.optJSONArray("records") ?: continue
+            for (j in 0 until records.length()) {
+                val d = records.optJSONObject(j)?.optString("date") ?: ""
+                if (d != except) dates.add(d)
+            }
+        }
+        return dates
+    }
+
+    private fun calendarDaysBetween(start: String, end: String): Int {
+        val a = dateFormat.parse(start)?.time ?: return 0
+        val b = dateFormat.parse(end)?.time ?: return 0
+        return (((b - a) / 86400000L).toInt() + 1).coerceAtLeast(0)
     }
 
     private fun showRatesDialog() {
