@@ -131,10 +131,11 @@ class MainActivity : Activity() {
                 if (cleanKg == null || scrapKg == null || clean < 0 || scrap < 0) {
                     toast("Введи оба значения. Ноль тоже можно."); return@setOnClickListener
                 }
-                if (date < periodStart || date > dateFormat.format(Date())) { toast("Выбери дату внутри текущего периода"); return@setOnClickListener }
+                if (!validDate(date) || date > dateFormat.format(Date())) { toast("Можно выбрать любую прошлую дату, но не будущую"); return@setOnClickListener }
                 if (allKnownDates().contains(date)) { toast("За эту дату запись уже существует"); return@setOnClickListener }
                 val newEntry = Entry(date, clean, scrap, noteInput.text.toString().trim())
                 entries.add(newEntry)
+                if (date < periodStart) { periodStart = date; prefs.edit().putString("period_start", periodStart).apply() }
                 entries.sortByDescending { it.date }
                 saveEntries()
                 toast("Запись сохранена")
@@ -199,14 +200,15 @@ class MainActivity : Activity() {
                 if (!validDate(date) || clean == null || scrap == null || clean < 0 || scrap < 0) {
                     toast("Проверь дату и значения в кг"); return@setPositiveButton
                 }
-                if (date < periodStart || date > dateFormat.format(Date())) {
-                    toast("Дата должна входить в текущий открытый период"); return@setPositiveButton
+                if (date > dateFormat.format(Date())) {
+                    toast("Нельзя поставить будущую дату"); return@setPositiveButton
                 }
                 if (allKnownDates().contains(date) && date != entry.date) {
                     toast("За эту дату запись уже существует"); return@setPositiveButton
                 }
                 entries.remove(entry)
                 entries.add(Entry(date, clean / 1000.0, scrap / 1000.0, noteInput.text.toString().trim()))
+                if (date < periodStart) { periodStart = date; prefs.edit().putString("period_start", periodStart).apply() }
                 entries.sortByDescending { it.date }
                 saveEntries()
                 render()
@@ -361,10 +363,6 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(8), dp(16), dp(8))
         }
-        box.addView(Button(this).apply {
-            text = "Открыть отдельный период"
-            setOnClickListener { createOpenArchivePeriod() }
-        })
         val history = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
         if (history.length() > 0 || archiveEditing) {
             val historicalCard = card()
