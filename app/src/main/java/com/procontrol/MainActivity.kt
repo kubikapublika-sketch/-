@@ -228,7 +228,21 @@ class MainActivity : Activity() {
                 row.addView(label("Чистая: " + qty(entry.clean) + " кг · Брак: " + qty(entry.scrap) + " кг", 13f, 0xFF34445B.toInt()))
                 row.addView(label(money(entry.clean * cleanRate + entry.scrap * scrapRate) + " сом", 16f, 0xFF087B58.toInt(), true))
                 if (entry.note.isNotBlank()) row.addView(label(entry.note, 12f, 0xFF68758A.toInt()))
-                row.addView(Button(this).apply { text = "Изменить"; setOnClickListener { showCalendarEntry(entry.date) } })
+                val actions = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER
+                }
+                actions.addView(Button(this).apply {
+                    text = "Изменить"
+                    isAllCaps = false
+                    setOnClickListener { showCalendarEntry(entry.date) }
+                }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(5) })
+                actions.addView(Button(this).apply {
+                    text = "Поделиться"
+                    isAllCaps = false
+                    setOnClickListener { shareProductionReceipt(entry.date) }
+                }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(5) })
+                row.addView(actions)
                 root.addView(row)
             }
         }
