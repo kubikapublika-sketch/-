@@ -63,7 +63,7 @@ class MainActivity : Activity() {
         val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         header.addView(label("ProControl", 27f, 0xFF17243A.toInt(), true), LinearLayout.LayoutParams(0, -2, 1f))
         header.addView(Button(this).apply { text = "Архив"; setOnClickListener { showArchive() } })
-        header.addView(Button(this).apply { text = "Тарифы"; setOnClickListener { showRatesDialog() } })
+        header.addView(Button(this).apply { text = "Настройки"; setOnClickListener { showRatesDialog() } })
         root.addView(header)
         root.addView(label("Учёт тоннажа и расчёт заработка", 14f, 0xFF68758A.toInt()))
 
@@ -109,8 +109,8 @@ class MainActivity : Activity() {
                 if (clean == null || scrap == null || clean < 0 || scrap < 0) {
                     toast("Введи оба значения. Ноль тоже можно."); return@setOnClickListener
                 }
-                if (date < periodStart) { toast("Дата раньше начала текущего периода"); return@setOnClickListener }
-                entries.removeAll { it.date == date }
+                if (entries.any { it.date == date }) { toast("За эту дату запись уже существует"); return@setOnClickListener }
+                if (date < periodStart) { toast("Эта дата относится к закрытому периоду. Включи редактирование архива в настройках."); return@setOnClickListener }
                 entries.add(Entry(date, clean, scrap, noteInput.text.toString().trim()))
                 entries.sortByDescending { it.date }
                 saveEntries()
