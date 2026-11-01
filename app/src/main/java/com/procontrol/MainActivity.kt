@@ -36,7 +36,7 @@ class MainActivity : Activity() {
     private var entries = mutableListOf<Entry>()
     private var periodStart = ""
     private var archiveEditing = false
-    private var selectedArchiveIndex = 0
+    private var selectedArchiveIndex = -1
 
     data class Entry(val date: String, val clean: Double, val scrap: Double, val note: String)
 
@@ -156,7 +156,7 @@ class MainActivity : Activity() {
         } else entries.forEach { entry ->
             val row = card()
             row.addView(label(formatDate(entry.date), 15f, 0xFF17243A.toInt(), true))
-            row.addView(label("Чистая: " + qty(entry.clean) + " т · Брак: " + qty(entry.scrap) + " кг", 13f, 0xFF34445B.toInt()))
+            row.addView(label("Чистая: " + qty(entry.clean) + " кг · Брак: " + qty(entry.scrap) + " кг", 13f, 0xFF34445B.toInt()))
             row.addView(label(money(entry.clean * cleanRate + entry.scrap * scrapRate) + " сом", 16f, 0xFF087B58.toInt(), true))
             if (entry.note.isNotBlank()) row.addView(label(entry.note, 12f, 0xFF68758A.toInt()))
             row.addView(Button(this).apply {
@@ -186,8 +186,8 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), 0)
             addView(fieldCaption("Дата")); addView(dateInput)
-            addView(fieldCaption("Чистая продукция, т")); addView(cleanInput)
-            addView(fieldCaption("Брак, т")); addView(scrapInput)
+            addView(fieldCaption("Чистая продукция, кг")); addView(cleanInput)
+            addView(fieldCaption("Брак, кг")); addView(scrapInput)
             addView(fieldCaption("Комментарий")); addView(noteInput)
         }
         AlertDialog.Builder(this).setTitle("Изменить запись").setView(box)
@@ -197,7 +197,7 @@ class MainActivity : Activity() {
                 val clean = cleanInput.text.toString().replace(',', '.').toDoubleOrNull()
                 val scrap = scrapInput.text.toString().replace(',', '.').toDoubleOrNull()
                 if (!validDate(date) || clean == null || scrap == null || clean < 0 || scrap < 0) {
-                    toast("Проверь дату и значения"); return@setPositiveButton
+                    toast("Проверь дату и значения в кг"); return@setPositiveButton
                 }
                 if (date < periodStart || date > dateFormat.format(Date())) {
                     toast("Дата должна входить в текущий открытый период"); return@setPositiveButton
@@ -223,7 +223,7 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this)
             .setTitle("Закрыть расчётный период?")
             .setMessage("Период: " + formatDate(periodStart) + " – " + formatDate(end) +
-                "\nЧистая продукция: " + qty(clean) + " т\nБрак: " + qty(scrap) + " кг" +
+                "\nЧистая продукция: " + qty(clean) + " кг\nБрак: " + qty(scrap) + " кг" +
                 "\nНачислено: " + money(pay) + " сом\nСреднее за день: " + money(average) +
                 " сом (" + days + " календарных дней)\n\nЗаписи попадут в архив, начнётся новый период.")
             .setNegativeButton("Отмена", null)
@@ -306,7 +306,7 @@ class MainActivity : Activity() {
                 val item = data[index]
                 AlertDialog.Builder(this@MainActivity).setTitle(formatDate(item.date))
                     .setMessage("Заработок: " + money(item.clean * cleanRate + item.scrap * scrapRate) +
-                        " сом\nЧистая продукция: " + qty(item.clean) + " т\nБрак: " + qty(item.scrap) + " т")
+                        " сом\nЧистая продукция: " + qty(item.clean) + " кг\nБрак: " + qty(item.scrap) + " кг")
                     .setPositiveButton("ОК", null).show()
                 return true
             }
@@ -395,7 +395,21 @@ class MainActivity : Activity() {
         if (archive.length() == 0) {
             if (history.length() == 0) box.addView(label("Архив пока пуст. Закрой расчётный период, и его результат появится здесь.", 14f, 0xFF68758A.toInt()))
         } else {
-            for (i in archive.length() - 1 downTo 0) {
+            selectedArchiveIndex = if (selectedArchiveIndex < 0) archive.length() - 1 else selectedArchiveIndex.coerceIn(0, archive.length() - 1)
+            val navigation = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            navigation.addView(Button(this).apply {
+                text = "‹ Старее"
+                isEnabled = selectedArchiveIndex > 0
+                setOnClickListener { selectedArchiveIndex--; showArchive() }
+            })
+            navigation.addView(label("Период " + (selectedArchiveIndex + 1) + " из " + archive.length(), 14f, 0xFF17243A.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(0, -2, 1f))
+            navigation.addView(Button(this).apply {
+                text = "Новее ›"
+                isEnabled = selectedArchiveIndex < archive.length() - 1
+                setOnClickListener { selectedArchiveIndex++; showArchive() }
+            })
+            box.addView(navigation)
+            for (i in selectedArchiveIndex..selectedArchiveIndex) {
                 val item = archive.getJSONObject(i)
                 val start = item.optString("start")
                 val end = item.optString("end")
@@ -411,7 +425,7 @@ class MainActivity : Activity() {
                 record.addView(label("Прошло дней: " + days, 13f, 0xFF68758A.toInt()))
                 record.addView(label("Заработано: " + money(pay) + " сом", 19f, 0xFF087B58.toInt(), true))
                 record.addView(label("В среднем: " + money(average) + " сом/день", 15f, 0xFF1557A6.toInt(), true))
-                record.addView(label("Чистая продукция: " + qty(clean) + " т · Брак: " + qty(scrap) + " кг", 12f, 0xFF68758A.toInt()))
+                record.addView(label("Чистая продукция: " + qty(clean) + " кг · Брак: " + qty(scrap) + " кг", 12f, 0xFF68758A.toInt()))
                 val saved = item.optJSONArray("records") ?: JSONArray()
                 if (saved.length() > 0) {
                     for (j in 0 until saved.length()) {
@@ -458,21 +472,21 @@ class MainActivity : Activity() {
 
     private fun addHistoricalRecord() {
         val date = EditText(this).apply { hint = "ГГГГ-ММ-ДД" }
-        val clean = numberInput("Чистая продукция, т")
-        val scrap = numberInput("Брак, т")
+        val clean = numberInput("Чистая продукция, кг").apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER }
+        val scrap = numberInput("Брак, кг").apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER }
         val note = EditText(this).apply { hint = "Комментарий (необязательно)" }
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), 0)
-            addView(fieldCaption("Дата")); addView(date); addView(fieldCaption("Чистая, т")); addView(clean)
-            addView(fieldCaption("Брак, т")); addView(scrap); addView(fieldCaption("Комментарий")); addView(note) }
+            addView(fieldCaption("Дата")); addView(date); addView(fieldCaption("Чистая, кг")); addView(clean)
+            addView(fieldCaption("Брак, кг")); addView(scrap); addView(fieldCaption("Комментарий")); addView(note) }
         AlertDialog.Builder(this).setTitle("Добавить историческую смену").setView(box)
             .setNegativeButton("Отмена", null).setPositiveButton("Сохранить") { _, _ ->
                 val d = date.text.toString().trim()
-                val c = clean.text.toString().replace(',', '.').toDoubleOrNull()
-                val b = scrap.text.toString().replace(',', '.').toDoubleOrNull()
-                if (!validDate(d) || c == null || b == null || c < 0 || b < 0) { toast("Проверь дату и тоннаж"); return@setPositiveButton }
+                val c = clean.text.toString().toLongOrNull()
+                val b = scrap.text.toString().toLongOrNull()
+                if (!validDate(d) || c == null || b == null || c < 0 || b < 0) { toast("Проверь дату и значения в кг"); return@setPositiveButton }
                 if (allKnownDates().contains(d)) { toast("За эту дату запись уже существует"); return@setPositiveButton }
                 val h = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
-                h.put(JSONObject().put("date", d).put("clean", c).put("scrap", b).put("note", note.text.toString().trim()))
+                h.put(JSONObject().put("date", d).put("clean", c / 1000.0).put("scrap", b / 1000.0).put("note", note.text.toString().trim()))
                 prefs.edit().putString("historical_entries", h.toString()).apply()
                 showArchive()
             }.show()
@@ -482,20 +496,20 @@ class MainActivity : Activity() {
         val h = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
         val old = h.optJSONObject(index) ?: return
         val date = EditText(this).apply { setText(old.optString("date")) }
-        val clean = numberInput("Чистая продукция, т").apply { setText(old.optDouble("clean").toString()) }
-        val scrap = numberInput("Брак, т").apply { setText(old.optDouble("scrap").toString()) }
+        val clean = numberInput("Чистая продукция, кг").apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER }.apply { setText((old.optDouble("clean") * 1000).toLong().toString()) }
+        val scrap = numberInput("Брак, кг").apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER }.apply { setText((old.optDouble("scrap") * 1000).toLong().toString()) }
         val note = EditText(this).apply { setText(old.optString("note")) }
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), 0)
-            addView(fieldCaption("Дата")); addView(date); addView(fieldCaption("Чистая, т")); addView(clean)
-            addView(fieldCaption("Брак, т")); addView(scrap); addView(fieldCaption("Комментарий")); addView(note) }
+            addView(fieldCaption("Дата")); addView(date); addView(fieldCaption("Чистая, кг")); addView(clean)
+            addView(fieldCaption("Брак, кг")); addView(scrap); addView(fieldCaption("Комментарий")); addView(note) }
         AlertDialog.Builder(this).setTitle("Изменить историческую смену").setView(box)
             .setNegativeButton("Отмена", null).setPositiveButton("Сохранить") { _, _ ->
                 val d = date.text.toString().trim()
-                val c = clean.text.toString().replace(',', '.').toDoubleOrNull()
-                val b = scrap.text.toString().replace(',', '.').toDoubleOrNull()
-                if (!validDate(d) || c == null || b == null || c < 0 || b < 0) { toast("Проверь дату и тоннаж"); return@setPositiveButton }
+                val c = clean.text.toString().toLongOrNull()
+                val b = scrap.text.toString().toLongOrNull()
+                if (!validDate(d) || c == null || b == null || c < 0 || b < 0) { toast("Проверь дату и значения в кг"); return@setPositiveButton }
                 if (allStoredDatesExcept(old.optString("date")).contains(d)) { toast("За эту дату уже есть запись"); return@setPositiveButton }
-                h.put(index, JSONObject().put("date", d).put("clean", c).put("scrap", b).put("note", note.text.toString().trim()))
+                h.put(index, JSONObject().put("date", d).put("clean", c / 1000.0).put("scrap", b / 1000.0).put("note", note.text.toString().trim()))
                 prefs.edit().putString("historical_entries", h.toString()).apply()
                 showArchive()
             }.show()
@@ -507,21 +521,21 @@ class MainActivity : Activity() {
         val records = period.optJSONArray("records") ?: JSONArray()
         val old = records.optJSONObject(recordIndex) ?: return
         val date = EditText(this).apply { setText(old.optString("date")) }
-        val clean = numberInput("Чистая продукция, т").apply { setText(old.optDouble("clean").toString()) }
-        val scrap = numberInput("Брак, т").apply { setText(old.optDouble("scrap").toString()) }
+        val clean = numberInput("Чистая продукция, кг").apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER }.apply { setText((old.optDouble("clean") * 1000).toLong().toString()) }
+        val scrap = numberInput("Брак, кг").apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER }.apply { setText((old.optDouble("scrap") * 1000).toLong().toString()) }
         val note = EditText(this).apply { setText(old.optString("note")); hint = "Комментарий" }
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), 0)
-            addView(fieldCaption("Дата ГГГГ-ММ-ДД")); addView(date); addView(fieldCaption("Чистая, т")); addView(clean)
-            addView(fieldCaption("Брак, т")); addView(scrap); addView(fieldCaption("Комментарий")); addView(note) }
+            addView(fieldCaption("Дата ГГГГ-ММ-ДД")); addView(date); addView(fieldCaption("Чистая, кг")); addView(clean)
+            addView(fieldCaption("Брак, кг")); addView(scrap); addView(fieldCaption("Комментарий")); addView(note) }
         AlertDialog.Builder(this).setTitle("Изменить запись архива").setView(box)
             .setNegativeButton("Отмена", null).setPositiveButton("Сохранить") { _, _ ->
                 val d = date.text.toString().trim()
-                val cv = clean.text.toString().replace(',', '.').toDoubleOrNull()
-                val sv = scrap.text.toString().replace(',', '.').toDoubleOrNull()
-                if (!validDate(d) || cv == null || sv == null || cv < 0 || sv < 0) { toast("Проверь дату и тоннаж"); return@setPositiveButton }
+                val cv = clean.text.toString().toLongOrNull()
+                val sv = scrap.text.toString().toLongOrNull()
+                if (!validDate(d) || cv == null || sv == null || cv < 0 || sv < 0) { toast("Проверь дату и значения в кг"); return@setPositiveButton }
                 if (d < period.optString("start") || d > period.optString("end")) { toast("Дата должна оставаться внутри этого периода"); return@setPositiveButton }
                 if (allStoredDatesExcept(old.optString("date")).contains(d)) { toast("За эту дату уже есть запись"); return@setPositiveButton }
-                records.put(recordIndex, JSONObject().put("date", d).put("clean", cv).put("scrap", sv).put("note", note.text.toString().trim()))
+                records.put(recordIndex, JSONObject().put("date", d).put("clean", cv / 1000.0).put("scrap", sv / 1000.0).put("note", note.text.toString().trim()))
                 period.put("records", records)
                 period.put("clean", sumRecords(records, "clean")).put("scrap", sumRecords(records, "scrap"))
                 a.put(periodIndex, period)
@@ -534,22 +548,22 @@ class MainActivity : Activity() {
         val a = JSONArray(prefs.getString("archive", "[]") ?: "[]")
         val period = a.optJSONObject(periodIndex) ?: return
         val date = EditText(this).apply { hint = "ГГГГ-ММ-ДД" }
-        val clean = numberInput("Чистая продукция, т")
-        val scrap = numberInput("Брак, т")
+        val clean = numberInput("Чистая продукция, кг").apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER }
+        val scrap = numberInput("Брак, кг").apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER }
         val note = EditText(this).apply { hint = "Комментарий" }
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), 0)
             addView(date); addView(clean); addView(scrap); addView(note) }
         AlertDialog.Builder(this).setTitle("Добавить смену в архив").setView(box)
             .setNegativeButton("Отмена", null).setPositiveButton("Добавить") { _, _ ->
                 val d = date.text.toString().trim()
-                val cv = clean.text.toString().replace(',', '.').toDoubleOrNull()
-                val sv = scrap.text.toString().replace(',', '.').toDoubleOrNull()
+                val cv = clean.text.toString().toLongOrNull()
+                val sv = scrap.text.toString().toLongOrNull()
                 if (!validDate(d) || d < period.optString("start") || d > period.optString("end") || cv == null || sv == null || cv < 0 || sv < 0) {
-                    toast("Проверь дату и значения"); return@setPositiveButton
+                    toast("Проверь дату и значения в кг"); return@setPositiveButton
                 }
                 if (allStoredDatesExcept("").contains(d)) { toast("За эту дату уже есть запись"); return@setPositiveButton }
                 val records = period.optJSONArray("records") ?: JSONArray()
-                records.put(JSONObject().put("date", d).put("clean", cv).put("scrap", sv).put("note", note.text.toString().trim()))
+                records.put(JSONObject().put("date", d).put("clean", cv / 1000.0).put("scrap", sv / 1000.0).put("note", note.text.toString().trim()))
                 period.put("records", records).put("clean", sumRecords(records, "clean")).put("scrap", sumRecords(records, "scrap"))
                 a.put(periodIndex, period)
                 prefs.edit().putString("archive", a.toString()).apply()
@@ -743,7 +757,7 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this).setTitle("Настройки").setView(box)
             .setNegativeButton("Отмена", null)
             .setPositiveButton("Сохранить") { _, _ ->
-                val c = clean.text.toString().replace(',', '.').toDoubleOrNull()
+                val c = clean.text.toString().toLongOrNull()
                 val s = scrap.text.toString().replace(',', '.').toDoubleOrNull()
                 if (c == null || s == null || c < 0 || s < 0) toast("Некорректный тариф")
                 else {
