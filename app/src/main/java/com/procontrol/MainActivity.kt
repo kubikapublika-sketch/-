@@ -37,6 +37,7 @@ class MainActivity : Activity() {
     private var periodStart = ""
     private var archiveEditing = false
     private var selectedArchiveIndex = -1
+    private var visibleMonth = java.util.Calendar.getInstance().apply { set(java.util.Calendar.DAY_OF_MONTH, 1) }
 
     data class Entry(val date: String, val clean: Double, val scrap: Double, val note: String)
 
@@ -81,7 +82,7 @@ class MainActivity : Activity() {
         val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         header.addView(label("ProControl", 27f, 0xFF17243A.toInt(), true), LinearLayout.LayoutParams(0, -2, 1f))
         header.addView(Button(this).apply { text = "Графики"; setOnClickListener { showCharts() } })
-        header.addView(Button(this).apply { text = "Архив"; setOnClickListener { showArchive() } })
+        header.addView(Button(this).apply { text = "Периоды"; setOnClickListener { showArchive() } })
         header.addView(Button(this).apply { text = "Настройки"; setOnClickListener { showRatesDialog() } })
         root.addView(header)
         root.addView(label("Учёт тоннажа и расчёт заработка", 14f, 0xFF68758A.toInt()))
@@ -89,93 +90,251 @@ class MainActivity : Activity() {
         val cleanTotal = entries.sumOf { it.clean }
         val scrapTotal = entries.sumOf { it.scrap }
         val earnings = cleanTotal * cleanRate + scrapTotal * scrapRate
+        val today = dateFormat.format(Date())
         val days = calendarDays()
         val averagePerDay = if (days > 0) earnings / days else 0.0
+        val archive = JSONArray(prefs.getString("archive", "[]") ?: "[]")
+        val currentNumber = nextPeriodNumber(archive)
         val summary = card()
-        summary.addView(label("ТЕКУЩИЙ РАСЧЁТНЫЙ ПЕРИОД", 12f, 0xFF68758A.toInt(), true))
-        summary.addView(label(formatDate(periodStart) + " - " + formatDate(dateFormat.format(Date())) + " · открыт", 14f, 0xFF17243A.toInt(), true))
+        summary.addView(label("ТЕКУЩИЙ ПЕРИОД $currentNumber", 12f, 0xFF68758A.toInt(), true))
+        summary.addView(label(formatDate(periodStart) + " - " + formatDate(today) + " · открыт", 14f, 0xFF17243A.toInt(), true))
         summary.addView(label("Начислено всего", 13f, 0xFF68758A.toInt()))
         summary.addView(label(money(earnings) + " сом", 30f, 0xFF087B58.toInt(), true))
-        summary.addView(label("Средний заработок в день", 13f, 0xFF68758A.toInt()))
+        summary.addView(label("Средний заработок в календарный день", 13f, 0xFF68758A.toInt()))
         summary.addView(label(money(averagePerDay) + " сом/день", 22f, 0xFF1557A6.toInt(), true))
         summary.addView(label("Чистая продукция: " + qty(cleanTotal) + " кг", 14f, 0xFF26364D.toInt()))
         summary.addView(label("Брак: " + qty(scrapTotal) + " кг", 14f, 0xFF26364D.toInt()))
-        summary.addView(label("Прошло дней: " + days + " · Смен внесено: " + entries.size, 12f, 0xFF68758A.toInt()))
-        summary.addView(label("Период: " + formatDate(periodStart) + " - " + formatDate(dateFormat.format(Date())), 12f, 0xFF68758A.toInt()))
+        summary.addView(label("Календарных дней: $days · Смен внесено: " + entries.size, 12f, 0xFF68758A.toInt()))
         root.addView(summary)
 
-        val addTitle = label("Добавить смену", 19f, 0xFF17243A.toInt(), true)
-        addTitle.setPadding(0, dp(18), 0, dp(8))
-        root.addView(addTitle)
-        val form = card()
-        var selectedDate = dateFormat.format(Date())
-        val dateButton = Button(this).apply {
-            text = formatDate(selectedDate)
-            setOnClickListener { showDatePicker(selectedDate) { picked -> selectedDate = picked; text = formatDate(picked) } }
+        val calendarCard = card()
+        val monthHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        monthHeader.addView(Button(this).apply {
+            text = "‹"
+            setOnClickListener { visibleMonth.add(java.util.Calendar.MONTH, -1); render() }
+        })
+        val monthTitle = java.text.SimpleDateFormat("LLLL yyyy", Locale("ru")).format(visibleMonth.time)
+            .replaceFirstChar { it.uppercase(Locale("ru")) }
+        monthHeader.addView(label(monthTitle, 19f, 0xFF17243A.toInt(), true).apply {
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        monthHeader.addView(Button(this).apply {
+            text = "›"
+            setOnClickListener { visibleMonth.add(java.util.Calendar.MONTH, 1); render() }
+        })
+        calendarCard.addView(monthHeader)
+
+        val weekdays = listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+        val weekHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        weekdays.forEach { dayName ->
+            weekHeader.addView(TextView(this).apply {
+                text = dayName; gravity = Gravity.CENTER; textSize = 12f
+                setTextColor(0xFF68758A.toInt())
+            }, LinearLayout.LayoutParams(0, dp(30), 1f))
         }
-        val cleanInput = numberInput("Килограммы чистой продукции").apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER }
-        val scrapInput = numberInput("Килограммы брака").apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER }
-        val noteInput = EditText(this).apply { hint = "Комментарий (необязательно)"; textSize = 15f }
-        form.addView(fieldCaption("Дата смены")); form.addView(dateButton, matchWrap())
-        form.addView(fieldCaption("Чистая продукция, кг")); form.addView(cleanInput, matchWrap())
-        form.addView(fieldCaption("Брак, кг")); form.addView(scrapInput, matchWrap())
-        form.addView(fieldCaption("Комментарий")); form.addView(noteInput, matchWrap())
-        form.addView(Button(this).apply {
-            text = "Сохранить день"
-            setOnClickListener {
-                val date = selectedDate
-                val cleanKg = cleanInput.text.toString().toLongOrNull()
-                val scrapKg = scrapInput.text.toString().toLongOrNull()
-                val clean = (cleanKg ?: -1L) / 1000.0
-                val scrap = (scrapKg ?: -1L) / 1000.0
-                if (cleanKg == null || scrapKg == null || clean < 0 || scrap < 0) {
-                    toast("Введи оба значения. Ноль тоже можно."); return@setOnClickListener
+        calendarCard.addView(weekHeader)
+
+        val firstDay = visibleMonth.clone() as java.util.Calendar
+        firstDay.set(java.util.Calendar.DAY_OF_MONTH, 1)
+        val offset = (firstDay.get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7
+        val daysInMonth = firstDay.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+        val rows = (offset + daysInMonth + 6) / 7
+        val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        for (week in 0 until rows) {
+            val weekRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            for (column in 0 until 7) {
+                val dayNumber = week * 7 + column - offset + 1
+                if (dayNumber in 1..daysInMonth) {
+                    val dayCalendar = firstDay.clone() as java.util.Calendar
+                    dayCalendar.set(java.util.Calendar.DAY_OF_MONTH, dayNumber)
+                    val dayDate = dateFormat.format(dayCalendar.time)
+                    val saved = findCalendarEntry(dayDate)
+                    val cell = TextView(this).apply {
+                        text = dayNumber.toString() + if (saved != null) "  •" else ""
+                        gravity = Gravity.CENTER
+                        textSize = 16f
+                        setTextColor(if (saved != null) 0xFF087B58.toInt() else 0xFF17243A.toInt())
+                        setBackgroundColor(when {
+                            dayDate == today -> 0xFFDCEBFF.toInt()
+                            saved != null -> 0xFFE4F4EC.toInt()
+                            else -> 0xFFFFFFFF.toInt()
+                        })
+                        setOnClickListener { showCalendarEntry(dayDate) }
+                    }
+                    weekRow.addView(cell, LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+                        setMargins(dp(2), dp(2), dp(2), dp(2))
+                    })
+                } else {
+                    weekRow.addView(View(this), LinearLayout.LayoutParams(0, dp(48), 1f))
                 }
-                if (!validDate(date) || date > dateFormat.format(Date())) { toast("Можно выбрать любую прошлую дату, но не будущую"); return@setOnClickListener }
-                if (allKnownDates().contains(date)) { toast("За эту дату запись уже существует"); return@setOnClickListener }
-                val newEntry = Entry(date, clean, scrap, noteInput.text.toString().trim())
-                entries.add(newEntry)
-                if (date < periodStart) { periodStart = date; prefs.edit().putString("period_start", periodStart).apply() }
-                entries.sortByDescending { it.date }
-                saveEntries()
-                toast("Запись сохранена")
-                render()
             }
-        }, matchWrap())
-        root.addView(form)
-
-        val listHeader = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(18), 0, dp(8))
+            grid.addView(weekRow)
         }
-        listHeader.addView(label("Записи периода", 19f, 0xFF17243A.toInt(), true), LinearLayout.LayoutParams(0, -2, 1f))
-        listHeader.addView(Button(this).apply { text = "Закрыть период"; setOnClickListener { closePeriod() } })
-        root.addView(listHeader)
+        calendarCard.addView(grid)
+        calendarCard.addView(label("Нажми на любую дату, чтобы внести или изменить данные. Точка означает, что запись уже есть.", 12f, 0xFF68758A.toInt()))
+        root.addView(calendarCard)
 
+        root.addView(Button(this).apply {
+            text = "Закрыть период"
+            setOnClickListener { closePeriod() }
+            layoutParams = matchWrap()
+        })
+
+        val listHeader = label("Записи текущего периода", 19f, 0xFF17243A.toInt(), true)
+        listHeader.setPadding(0, dp(14), 0, dp(8))
+        root.addView(listHeader)
         if (entries.isEmpty()) {
-            root.addView(label("Пока нет записей. Добавь первую смену выше.", 14f, 0xFF68758A.toInt()))
-        } else entries.forEach { entry ->
-            val row = card()
-            row.addView(label(formatDate(entry.date), 15f, 0xFF17243A.toInt(), true))
-            row.addView(label("Чистая: " + qty(entry.clean) + " кг · Брак: " + qty(entry.scrap) + " кг", 13f, 0xFF34445B.toInt()))
-            row.addView(label(money(entry.clean * cleanRate + entry.scrap * scrapRate) + " сом", 16f, 0xFF087B58.toInt(), true))
-            if (entry.note.isNotBlank()) row.addView(label(entry.note, 12f, 0xFF68758A.toInt()))
-            row.addView(Button(this).apply {
-                text = "⋮"
-                setOnClickListener {
-                    AlertDialog.Builder(this@MainActivity)
-                        .setItems(arrayOf("Изменить запись", "Удалить запись")) { _, choice ->
-                            if (choice == 0) editEntry(entry)
-                            else AlertDialog.Builder(this@MainActivity)
-                                .setMessage("Удалить запись за " + formatDate(entry.date) + "?")
-                                .setNegativeButton("Отмена", null)
-                                .setPositiveButton("Удалить") { _, _ -> entries.remove(entry); saveEntries(); render() }.show()
-                        }.show()
-                }
-            })
-            root.addView(row)
+            root.addView(label("Пока нет записей в текущем периоде.", 14f, 0xFF68758A.toInt()))
+        } else {
+            entries.sortedByDescending { it.date }.forEach { entry ->
+                val row = card()
+                row.addView(label(formatDate(entry.date), 15f, 0xFF17243A.toInt(), true))
+                row.addView(label("Чистая: " + qty(entry.clean) + " кг · Брак: " + qty(entry.scrap) + " кг", 13f, 0xFF34445B.toInt()))
+                row.addView(label(money(entry.clean * cleanRate + entry.scrap * scrapRate) + " сом", 16f, 0xFF087B58.toInt(), true))
+                if (entry.note.isNotBlank()) row.addView(label(entry.note, 12f, 0xFF68758A.toInt()))
+                row.addView(Button(this).apply { text = "Изменить"; setOnClickListener { showCalendarEntry(entry.date) } })
+                root.addView(row)
+            }
         }
         setContentView(ScrollView(this).apply { addView(root) })
+    }
+
+    private fun findCalendarEntry(date: String): Entry? {
+        entries.firstOrNull { it.date == date }?.let { return it }
+        val history = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
+        for (i in 0 until history.length()) {
+            val item = history.optJSONObject(i) ?: continue
+            if (item.optString("date") == date) return Entry(date, item.optDouble("clean"), item.optDouble("scrap"), item.optString("note"))
+        }
+        val archive = JSONArray(prefs.getString("archive", "[]") ?: "[]")
+        for (i in 0 until archive.length()) {
+            val records = archive.optJSONObject(i)?.optJSONArray("records") ?: continue
+            for (j in 0 until records.length()) {
+                val item = records.optJSONObject(j) ?: continue
+                if (item.optString("date") == date) return Entry(date, item.optDouble("clean"), item.optDouble("scrap"), item.optString("note"))
+            }
+        }
+        return null
+    }
+
+    private fun showCalendarEntry(date: String) {
+        if (date > dateFormat.format(Date())) { toast("Будущие даты пока нельзя заполнять"); return }
+        val old = findCalendarEntry(date)
+        val cleanInput = numberInput("Чистая продукция, кг").apply {
+            if (old != null) setText((old.clean * 1000.0).toLong().toString())
+        }
+        val scrapInput = numberInput("Брак, кг").apply {
+            if (old != null) setText((old.scrap * 1000.0).toLong().toString())
+        }
+        val noteInput = EditText(this).apply {
+            hint = "Комментарий (необязательно)"; textSize = 15f
+            if (old != null) setText(old.note)
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+            addView(fieldCaption("Чистая продукция, кг")); addView(cleanInput, matchWrap())
+            addView(fieldCaption("Брак, кг")); addView(scrapInput, matchWrap())
+            addView(fieldCaption("Комментарий")); addView(noteInput, matchWrap())
+        }
+        val builder = AlertDialog.Builder(this).setTitle(formatDate(date)).setView(box)
+            .setNegativeButton("Отмена", null).setPositiveButton("Сохранить", null)
+        if (old != null) builder.setNeutralButton("Удалить", null)
+        val dialog = builder.create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val cleanKg = cleanInput.text.toString().replace(',', '.').toDoubleOrNull()
+                val scrapKg = scrapInput.text.toString().replace(',', '.').toDoubleOrNull()
+                if (cleanKg == null || scrapKg == null || cleanKg < 0 || scrapKg < 0) {
+                    toast("Введи оба значения в кг. Ноль тоже можно."); return@setOnClickListener
+                }
+                saveCalendarEntry(Entry(date, cleanKg / 1000.0, scrapKg / 1000.0, noteInput.text.toString().trim()))
+                dialog.dismiss()
+                toast("Запись за " + formatDate(date) + " сохранена")
+                render()
+            }
+            if (old != null) {
+                dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                    AlertDialog.Builder(this).setMessage("Удалить запись за " + formatDate(date) + "?")
+                        .setNegativeButton("Отмена", null)
+                        .setPositiveButton("Удалить") { _, _ ->
+                            deleteCalendarEntry(date); dialog.dismiss(); render()
+                        }.show()
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun saveCalendarEntry(entry: Entry) {
+        val date = entry.date
+        val archive = JSONArray(prefs.getString("archive", "[]") ?: "[]")
+        var archiveIndex = -1
+        for (i in 0 until archive.length()) {
+            val period = archive.optJSONObject(i) ?: continue
+            val start = period.optString("start"); val end = period.optString("end")
+            val inRange = start.isNotBlank() && end.isNotBlank() && date >= start && date <= end
+            val hasRecord = (period.optJSONArray("records") ?: JSONArray()).let { records ->
+                (0 until records.length()).any { records.optJSONObject(it)?.optString("date") == date }
+            }
+            if (inRange || hasRecord) { archiveIndex = i; break }
+        }
+        if (archiveIndex >= 0) {
+            val period = archive.getJSONObject(archiveIndex)
+            val records = period.optJSONArray("records") ?: JSONArray()
+            val index = (0 until records.length()).firstOrNull { records.optJSONObject(it)?.optString("date") == date }
+            val saved = JSONObject().put("date", date).put("clean", entry.clean).put("scrap", entry.scrap).put("note", entry.note)
+            if (index == null) records.put(saved) else records.put(index, saved)
+            period.put("records", records).put("clean", sumRecords(records, "clean")).put("scrap", sumRecords(records, "scrap"))
+            archive.put(archiveIndex, period)
+            entries.removeAll { it.date == date }
+            saveEntries()
+            prefs.edit().putString("archive", archive.toString()).apply()
+            return
+        }
+
+        val history = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
+        val historicalIndex = (0 until history.length()).firstOrNull { history.optJSONObject(it)?.optString("date") == date }
+        if (historicalIndex != null) {
+            history.put(historicalIndex, JSONObject().put("date", date).put("clean", entry.clean)
+                .put("scrap", entry.scrap).put("note", entry.note))
+            prefs.edit().putString("historical_entries", history.toString()).apply()
+            return
+        }
+
+        val currentIndex = entries.indexOfFirst { it.date == date }
+        if (currentIndex >= 0) entries[currentIndex] = entry else entries.add(entry)
+        if (date < periodStart) {
+            periodStart = date
+            prefs.edit().putString("period_start", periodStart).apply()
+        }
+        entries.sortByDescending { it.date }
+        saveEntries()
+    }
+
+    private fun deleteCalendarEntry(date: String) {
+        val archive = JSONArray(prefs.getString("archive", "[]") ?: "[]")
+        for (i in 0 until archive.length()) {
+            val period = archive.optJSONObject(i) ?: continue
+            val records = period.optJSONArray("records") ?: JSONArray()
+            val index = (0 until records.length()).firstOrNull { records.optJSONObject(it)?.optString("date") == date }
+            if (index != null) {
+                records.remove(index)
+                period.put("records", records).put("clean", sumRecords(records, "clean")).put("scrap", sumRecords(records, "scrap"))
+                archive.put(i, period)
+                prefs.edit().putString("archive", archive.toString()).apply()
+                return
+            }
+        }
+        val history = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
+        val historicalIndex = (0 until history.length()).firstOrNull { history.optJSONObject(it)?.optString("date") == date }
+        if (historicalIndex != null) {
+            history.remove(historicalIndex)
+            prefs.edit().putString("historical_entries", history.toString()).apply()
+            return
+        }
+        entries.removeAll { it.date == date }
+        saveEntries()
     }
 
     private fun editEntry(entry: Entry) {
@@ -430,6 +589,7 @@ class MainActivity : Activity() {
                 record.addView(label("В среднем: " + money(average) + " сом/день", 15f, 0xFF1557A6.toInt(), true))
                 record.addView(label("Чистая продукция: " + qty(clean) + " кг · Брак: " + qty(scrap) + " кг", 12f, 0xFF68758A.toInt()))
                 val saved = item.optJSONArray("records") ?: JSONArray()
+                record.addView(label("Смен внесено: " + saved.length(), 12f, 0xFF68758A.toInt()))
                 if (saved.length() > 0) {
                     for (j in 0 until saved.length()) {
                         val e = saved.optJSONObject(j) ?: continue
