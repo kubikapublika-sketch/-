@@ -758,7 +758,7 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this).setTitle("Настройки").setView(box)
             .setNegativeButton("Отмена", null)
             .setPositiveButton("Сохранить") { _, _ ->
-                val c = clean.text.toString().toLongOrNull()
+                val c = clean.text.toString().replace(',', '.').toDoubleOrNull()
                 val s = scrap.text.toString().replace(',', '.').toDoubleOrNull()
                 if (c == null || s == null || c < 0 || s < 0) toast("Некорректный тариф")
                 else {
