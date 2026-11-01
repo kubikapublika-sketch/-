@@ -243,6 +243,7 @@ class MainActivity : Activity() {
                     .putString("period_start", nextStart).apply()
                 periodStart = nextStart
                 entries.clear()
+                selectedArchiveIndex = -1
                 toast("Период закрыт и сохранён в архив")
                 render()
             }.show()
@@ -368,7 +369,7 @@ class MainActivity : Activity() {
             for (j in 0 until history.length()) {
                 val e = history.optJSONObject(j) ?: continue
                 val line = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-                line.addView(label(formatDate(e.optString("date")) + " · " + qty(e.optDouble("clean")) + " т · брак " + qty(e.optDouble("scrap")) + " кг", 12f, 0xFF34445B.toInt()), LinearLayout.LayoutParams(0, -2, 1f))
+                line.addView(label(formatDate(e.optString("date")) + " · " + qty(e.optDouble("clean")) + " кг · брак " + qty(e.optDouble("scrap")) + " кг", 12f, 0xFF34445B.toInt()), LinearLayout.LayoutParams(0, -2, 1f))
                 if (archiveEditing) line.addView(Button(this).apply {
                     text = "⋮"
                     setOnClickListener {
@@ -431,7 +432,7 @@ class MainActivity : Activity() {
                     for (j in 0 until saved.length()) {
                         val e = saved.optJSONObject(j) ?: continue
                         val line = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-                        line.addView(label(formatDate(e.optString("date")) + " · " + qty(e.optDouble("clean")) + " т · брак " + qty(e.optDouble("scrap")) + " кг", 12f, 0xFF34445B.toInt()), LinearLayout.LayoutParams(0, -2, 1f))
+                        line.addView(label(formatDate(e.optString("date")) + " · " + qty(e.optDouble("clean")) + " кг · брак " + qty(e.optDouble("scrap")) + " кг", 12f, 0xFF34445B.toInt()), LinearLayout.LayoutParams(0, -2, 1f))
                         if (archiveEditing) line.addView(Button(this).apply {
                             text = "⋮"
                             setOnClickListener {
