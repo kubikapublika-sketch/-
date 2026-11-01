@@ -599,8 +599,8 @@ class MainActivity : Activity() {
                 val archive = JSONArray(prefs.getString("archive", "[]") ?: "[]")
                 var latestArchivedEnd = ""
                 for (i in 0 until archive.length()) latestArchivedEnd = maxOf(latestArchivedEnd, archive.optJSONObject(i)?.optString("end") ?: "")
-                if (!validDate(newStart) || !validDate(newEnd) || newStart > newEnd || newStart > today || newEnd < today) {
-                    toast("Проверь даты: начало не позже конца, а сегодня должно входить в период")
+                if (!validDate(newStart) || !validDate(newEnd) || newStart > newEnd || newStart > today) {
+                    toast("Проверь даты: начало не позже конца и не позже сегодняшнего дня")
                     return@setPositiveButton
                 }
                 if (latestArchivedEnd.isNotEmpty() && newStart <= latestArchivedEnd) {
@@ -870,7 +870,7 @@ class MainActivity : Activity() {
         return dateFormat.format(calendar.time)
     }
 
-    private fun calendarDays(): Int = calendarDaysBetween(periodStart, dateFormat.format(Date()))
+    private fun calendarDays(): Int = calendarDaysBetween(periodStart, periodEnd)
 
     private fun showDatePicker(initial: String, onPicked: (String) -> Unit) {
         val cal = java.util.Calendar.getInstance()
