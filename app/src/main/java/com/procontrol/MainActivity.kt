@@ -499,7 +499,23 @@ class MainActivity : Activity() {
                     toast("Проверь даты начала и окончания")
                     return@setPositiveButton
                 }
+                val today = dateFormat.format(Date())
+                if (end > today) {
+                    toast("Открытый период можно задать только до сегодняшней даты")
+                    return@setPositiveButton
+                }
+                if (start <= periodStart && end >= periodStart) {
+                    toast("Этот диапазон пересекается с текущим периодом. Пропущенные смены текущего периода внеси прямо в него.")
+                    return@setPositiveButton
+                }
                 val archive = JSONArray(prefs.getString("archive", "[]") ?: "[]")
+                for (i in 0 until archive.length()) {
+                    val existing = archive.optJSONObject(i) ?: continue
+                    if (start <= existing.optString("end") && end >= existing.optString("start")) {
+                        toast("Этот диапазон пересекается с " + existing.optString("name", "другим периодом"))
+                        return@setPositiveButton
+                    }
+                }
                 val number = nextPeriodNumber(archive)
                 archive.put(JSONObject().put("number", number).put("name", "Период $number")
                     .put("start", start).put("end", end).put("clean", 0.0).put("scrap", 0.0)
@@ -588,7 +604,9 @@ class MainActivity : Activity() {
                 val cv = clean.text.toString().toLongOrNull()
                 val sv = scrap.text.toString().toLongOrNull()
                 if (!validDate(d) || cv == null || sv == null || cv < 0 || sv < 0) { toast("Проверь дату и значения в кг"); return@setPositiveButton }
-                if (d < period.optString("start") || d > period.optString("end")) { toast("Дата должна оставаться внутри этого периода"); return@setPositiveButton }
+                if (d < period.optString("start") || d > period.optString("end") || d > dateFormat.format(Date())) {
+                    toast("Дата должна оставаться внутри этого периода и не позже сегодняшнего дня"); return@setPositiveButton
+                }
                 if (allStoredDatesExcept(old.optString("date")).contains(d)) { toast("За эту дату уже есть запись"); return@setPositiveButton }
                 records.put(recordIndex, JSONObject().put("date", d).put("clean", cv / 1000.0).put("scrap", sv / 1000.0).put("note", note.text.toString().trim()))
                 period.put("records", records)
@@ -615,8 +633,9 @@ class MainActivity : Activity() {
                 val d = selectedDate
                 val cv = clean.text.toString().toLongOrNull()
                 val sv = scrap.text.toString().toLongOrNull()
-                if (!validDate(d) || d < period.optString("start") || d > period.optString("end") || cv == null || sv == null || cv < 0 || sv < 0) {
-                    toast("Проверь дату и значения в кг"); return@setPositiveButton
+                if (!validDate(d) || d < period.optString("start") || d > period.optString("end") ||
+                    d > dateFormat.format(Date()) || cv == null || sv == null || cv < 0 || sv < 0) {
+                    toast("Дата должна быть внутри периода и не позже сегодняшнего дня. Проверь значения в кг"); return@setPositiveButton
                 }
                 if (allStoredDatesExcept("").contains(d)) { toast("За эту дату уже есть запись"); return@setPositiveButton }
                 val records = period.optJSONArray("records") ?: JSONArray()
@@ -685,7 +704,9 @@ class MainActivity : Activity() {
                 safeRecords.put(JSONObject().put("d", e.optString("date")).put("c", e.optDouble("clean"))
                     .put("s", e.optDouble("scrap")).put("n", e.optString("note")))
             }
-            safePeriods.put(JSONObject().put("a", p.optString("start")).put("b", p.optString("end")).put("r", safeRecords))
+            safePeriods.put(JSONObject().put("a", p.optString("start")).put("b", p.optString("end"))
+                .put("n", p.optInt("number", i + 1)).put("m", p.optString("name", "Период " + (i + 1)))
+                .put("o", p.optBoolean("open", false)).put("r", safeRecords))
         }
         root.put("periods", safePeriods)
         val safeHistory = JSONArray()
@@ -756,7 +777,9 @@ class MainActivity : Activity() {
                                     if (existing?.optString("start") == start && existing.optString("end") == end) target = existing
                                 }
                                 if (target == null) {
-                                    target = JSONObject().put("start", start).put("end", end).put("records", JSONArray())
+                                    val newNumber = nextPeriodNumber(archive)
+                                    target = JSONObject().put("number", newNumber).put("name", "Период $newNumber")
+                                        .put("start", start).put("end", end).put("records", JSONArray())
                                     archive.put(target)
                                 }
                                 val records = target.optJSONArray("records") ?: JSONArray()
@@ -767,6 +790,7 @@ class MainActivity : Activity() {
                                         .put("scrap", e.optDouble("s")).put("note", e.optString("n")))
                                 }
                                 target.put("records", records)
+                                if (p.optBoolean("o", false)) target.put("open", true)
                                 var cleanSum = 0.0; var scrapSum = 0.0
                                 for (j in 0 until records.length()) { cleanSum += records.getJSONObject(j).optDouble("clean"); scrapSum += records.getJSONObject(j).optDouble("scrap") }
                                 target.put("clean", cleanSum).put("scrap", scrapSum)
