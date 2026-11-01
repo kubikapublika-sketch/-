@@ -81,6 +81,7 @@ class MainActivity : Activity() {
         }
         val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         header.addView(label("ProControl", 27f, 0xFF17243A.toInt(), true), LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(Button(this).apply { text = "Итоги"; setOnClickListener { showOverallStats() } })
         header.addView(Button(this).apply { text = "Графики"; setOnClickListener { showCharts() } })
         header.addView(Button(this).apply { text = "Периоды"; setOnClickListener { showArchive() } })
         header.addView(Button(this).apply { text = "Настройки"; setOnClickListener { showRatesDialog() } })
@@ -426,6 +427,96 @@ class MainActivity : Activity() {
             }
         }
         return result.distinctBy { it.date }.sortedBy { it.date }
+    }
+
+    private fun showOverallStats() {
+        val all = allEntries().sortedBy { it.date }
+        if (all.isEmpty()) { toast("Пока нет данных для статистики"); return }
+        val today = dateFormat.format(Date())
+        var from = all.first().date
+        var to = today
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+        }
+        val rangeLabel = label("", 13f, 0xFF68758A.toInt(), true)
+        val summary = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val daily = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        fun refresh() {
+            val selected = all.filter { it.date >= from && it.date <= to }
+            val clean = selected.sumOf { it.clean }
+            val scrap = selected.sumOf { it.scrap }
+            val pay = clean * cleanRate + scrap * scrapRate
+            val days = calendarDaysBetween(from, to)
+            val workDays = selected.size
+            val noShiftDays = (days - workDays).coerceAtLeast(0)
+            val averageCalendar = if (days > 0) pay / days else 0.0
+            val averageShift = if (workDays > 0) pay / workDays else 0.0
+            val scrapPercent = if (clean + scrap > 0) scrap * 100.0 / (clean + scrap) else 0.0
+            rangeLabel.text = "Период: ${formatDate(from)} - ${formatDate(to)}"
+            summary.removeAllViews()
+            summary.addView(label("ОБЩИЕ ИТОГИ", 12f, 0xFF68758A.toInt(), true))
+            summary.addView(label("Заработок: ${money(pay)} сом", 22f, 0xFF087B58.toInt(), true))
+            summary.addView(label("Чистая продукция: ${qty(clean)} кг", 15f, 0xFF26364D.toInt()))
+            summary.addView(label("Брак: ${qty(scrap)} кг · ${String.format(Locale("ru"), "%.2f", scrapPercent)}%", 15f, 0xFF26364D.toInt()))
+            summary.addView(label("Календарных дней: $days · Смен: $workDays · Без смен: $noShiftDays", 13f, 0xFF34445B.toInt()))
+            summary.addView(label("Среднее: ${money(averageCalendar)} сом/день · ${money(averageShift)} сом/смену", 13f, 0xFF1557A6.toInt(), true))
+            daily.removeAllViews()
+            daily.addView(label("ПО ДНЯМ", 15f, 0xFF17243A.toInt(), true))
+            if (selected.isEmpty()) daily.addView(label("За этот диапазон смен нет.", 13f, 0xFF68758A.toInt()))
+            selected.sortedByDescending { it.date }.forEach { e ->
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(8), dp(7), dp(8), dp(7))
+                    setBackgroundColor(0xFFF3F5F8.toInt())
+                }
+                row.addView(label(formatDate(e.date) + " · " + money(e.clean * cleanRate + e.scrap * scrapRate) + " сом", 14f, 0xFF17243A.toInt(), true))
+                row.addView(label("Чистая: ${qty(e.clean)} кг · Брак: ${qty(e.scrap)} кг", 12f, 0xFF536176.toInt()))
+                if (e.note.isNotBlank()) row.addView(label(e.note, 12f, 0xFF68758A.toInt()))
+                daily.addView(row)
+            }
+            val monthly = selected.groupBy { it.date.substring(0, 7) }.toSortedMap()
+            if (monthly.isNotEmpty()) {
+                daily.addView(label("ПО МЕСЯЦАМ", 15f, 0xFF17243A.toInt(), true))
+                monthly.toSortedMap(compareByDescending { it }).forEach { (month, records) ->
+                    val monthPay = records.sumOf { it.clean * cleanRate + it.scrap * scrapRate }
+                    daily.addView(label("$month · ${records.size} смен · ${money(monthPay)} сом", 13f, 0xFF34445B.toInt()))
+                }
+            }
+        }
+        val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        fun preset(labelText: String, start: String) {
+            controls.addView(Button(this).apply {
+                text = labelText
+                setOnClickListener {
+                    from = start
+                    to = today
+                    refresh()
+                }
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        preset("Всё", all.first().date)
+        preset("Месяц", today.substring(0, 8) + "01")
+        preset("Год", today.substring(0, 4) + "-01-01")
+        controls.addView(Button(this).apply {
+            text = "Даты"
+            setOnClickListener {
+                showDatePicker(from) { pickedFrom ->
+                    showDatePicker(to) { pickedTo ->
+                        if (pickedFrom > pickedTo) toast("Начало не может быть позже окончания")
+                        else { from = pickedFrom; to = pickedTo; refresh() }
+                    }
+                }
+            }
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        content.addView(controls)
+        content.addView(rangeLabel)
+        content.addView(summary)
+        content.addView(daily)
+        refresh()
+        val scroll = ScrollView(this).apply { addView(content) }
+        AlertDialog.Builder(this).setTitle("Общая статистика").setView(scroll)
+            .setPositiveButton("Закрыть", null).show()
     }
 
     private fun showCharts() {
