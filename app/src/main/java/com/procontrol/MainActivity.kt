@@ -1,6 +1,11 @@
 package com.procontrol
 
 import android.app.Activity
+import android.content.Intent
+import android.content.ContentValues
+import android.graphics.Bitmap
+import android.os.Build
+import android.provider.MediaStore
 import android.app.AlertDialog
 import android.app.DatePickerDialog
 import android.os.Bundle
@@ -50,6 +55,12 @@ class MainActivity : Activity() {
         }
         archiveEditing = prefs.getBoolean("archive_editing", false)
         loadEntries()
+        val todayForMigration = dateFormat.format(Date())
+        val earliestCurrentEntry = entries.minOfOrNull { it.date }
+        if (periodStart == todayForMigration && earliestCurrentEntry != null && earliestCurrentEntry < periodStart) {
+            periodStart = earliestCurrentEntry
+            prefs.edit().putString("period_start", periodStart).apply()
+        }
         render()
     }
 
@@ -125,6 +136,11 @@ class MainActivity : Activity() {
         summary.addView(label(money(averagePerDay) + " сом/день", 19f, 0xFF1557A6.toInt(), true))
         summary.addView(label("Календарных дней: $days · Смен внесено: " + entries.size, 12f, 0xFF68758A.toInt()))
         root.addView(summary)
+        root.addView(Button(this).apply {
+            text = "Поделиться чеком"
+            setOnClickListener { shareProductionReceipt() }
+            layoutParams = LinearLayout.LayoutParams(-1, dp(44)).apply { bottomMargin = dp(8) }
+        })
 
         val calendarCard = card()
         val monthHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -168,10 +184,17 @@ class MainActivity : Activity() {
                     dayCalendar.set(java.util.Calendar.DAY_OF_MONTH, dayNumber)
                     val dayDate = dateFormat.format(dayCalendar.time)
                     val saved = findCalendarEntry(dayDate)
+                    val previousCalendar = (dayCalendar.clone() as java.util.Calendar).apply { add(java.util.Calendar.DAY_OF_MONTH, -1) }
+                    val previousEntry = findCalendarEntry(dateFormat.format(previousCalendar.time))
+                    val trend = if (saved != null && previousEntry != null) when {
+                        saved.clean + saved.scrap > previousEntry.clean + previousEntry.scrap -> " 📈"
+                        saved.clean + saved.scrap < previousEntry.clean + previousEntry.scrap -> " 📉"
+                        else -> " ➖"
+                    } else ""
                     val cell = TextView(this).apply {
-                        text = dayNumber.toString() + if (saved != null) "  •" else ""
+                        text = dayNumber.toString() + if (saved != null) "  •" + trend else ""
                         gravity = Gravity.CENTER
-                        textSize = 16f
+                        textSize = 14f
                         setTextColor(if (saved != null) 0xFF087B58.toInt() else 0xFF17243A.toInt())
                         setBackgroundColor(when {
                             dayDate == today -> 0xFFDCEBFF.toInt()
@@ -238,6 +261,78 @@ class MainActivity : Activity() {
             }
         }
         return null
+    }
+
+    private fun shareProductionReceipt() {
+        if (Build.VERSION.SDK_INT < 29) {
+            toast("Для отправки картинки требуется Android 10 или новее")
+            return
+        }
+        val today = dateFormat.format(Date())
+        val todayEntry = findCalendarEntry(today)
+        if (todayEntry == null) { toast("Сначала внеси сегодняшние показатели"); return }
+        val yesterdayCal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_MONTH, -1) }
+        val yesterdayEntry = findCalendarEntry(dateFormat.format(yesterdayCal.time))
+        val todayWeight = todayEntry.clean + todayEntry.scrap
+        val yesterdayWeight = yesterdayEntry?.let { it.clean + it.scrap }
+        val isGreen = yesterdayWeight == null || todayWeight >= yesterdayWeight
+        val background = if (isGreen) Color.rgb(235, 249, 237) else Color.rgb(255, 238, 238)
+        val accent = if (isGreen) Color.rgb(34, 150, 75) else Color.rgb(205, 55, 55)
+        val periodClean = entries.sumOf { it.clean }
+        val periodScrap = entries.sumOf { it.scrap }
+        val periodWeight = periodClean + periodScrap
+        val periodScrapPercent = if (periodWeight > 0.0) periodScrap * 100.0 / periodWeight else 0.0
+
+        val bitmap = Bitmap.createBitmap(900, 520, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        paint.color = background
+        canvas.drawRoundRect(18f, 18f, 882f, 502f, 34f, 34f, paint)
+        fun drawText(text: String, x: Float, y: Float, size: Float, color: Int, bold: Boolean = false) {
+            paint.color = color
+            paint.textSize = size
+            paint.typeface = if (bold) Typeface.create("sans-serif", Typeface.BOLD) else Typeface.create("sans-serif", Typeface.NORMAL)
+            canvas.drawText(text, x, y, paint)
+        }
+        val dark = Color.rgb(35, 48, 42)
+        val muted = Color.rgb(100, 115, 105)
+        drawText("PROCONTROL", 58f, 82f, 34f, dark, true)
+        drawText(if (isGreen) "▲ РОСТ" else "▼ СНИЖЕНИЕ", 670f, 82f, 25f, accent, true)
+        drawText(formatDate(today), 58f, 124f, 22f, muted)
+        drawText(qty(todayEntry.clean) + " кг", 58f, 220f, 72f, accent, true)
+        drawText("Чистая продукция сегодня", 60f, 258f, 24f, muted)
+        drawText("Брак: " + qty(todayEntry.scrap) + " кг", 60f, 315f, 28f, dark, true)
+        drawText("Общий вес: " + qty(todayWeight) + " кг", 470f, 315f, 28f, dark, true)
+        paint.color = if (isGreen) Color.rgb(199, 230, 202) else Color.rgb(244, 203, 203)
+        canvas.drawLine(58f, 350f, 842f, 350f, paint)
+        drawText("ЗА ПЕРИОД", 58f, 395f, 22f, muted, true)
+        drawText("Чистая: " + qty(periodClean) + " кг", 58f, 445f, 26f, dark, true)
+        drawText("Брак: " + qty(periodScrap) + " кг", 430f, 445f, 26f, dark, true)
+        drawText("Общий вес: " + qty(periodWeight) + " кг", 58f, 482f, 22f, dark, true)
+        drawText("Брак " + String.format(Locale("ru"), "%.1f", periodScrapPercent) + "%", 650f, 482f, 22f, muted)
+
+        try {
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, "ProControl_\${today}.png")
+                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/ProControl")
+            }
+            val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ?: throw Exception("Не удалось создать файл")
+            contentResolver.openOutputStream(uri)?.use { stream ->
+                if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)) throw Exception("Не удалось сохранить картинку")
+            } ?: throw Exception("Не удалось открыть файл")
+            bitmap.recycle()
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "Отправить чек"))
+        } catch (e: Exception) {
+            bitmap.recycle()
+            toast("Не удалось подготовить чек: \${e.message}")
+        }
     }
 
     private fun showCalendarEntry(date: String) {
@@ -327,10 +422,6 @@ class MainActivity : Activity() {
 
         val currentIndex = entries.indexOfFirst { it.date == date }
         if (currentIndex >= 0) entries[currentIndex] = entry else entries.add(entry)
-        if (date < periodStart) {
-            periodStart = date
-            prefs.edit().putString("period_start", periodStart).apply()
-        }
         entries.sortByDescending { it.date }
         saveEntries()
     }
@@ -390,7 +481,6 @@ class MainActivity : Activity() {
                 }
                 entries.remove(entry)
                 entries.add(Entry(date, clean / 1000.0, scrap / 1000.0, noteInput.text.toString().trim()))
-                if (date < periodStart) { periodStart = date; prefs.edit().putString("period_start", periodStart).apply() }
                 entries.sortByDescending { it.date }
                 saveEntries()
                 render()
