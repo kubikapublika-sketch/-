@@ -648,12 +648,16 @@ class MainActivity : Activity() {
     }
 
     private fun calendarDays(): Int = calendarDaysBetween(periodStart, dateFormat.format(Date()))
-    private fun validDate(value: String): Boolean = try {
-        if (!value.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) return false
-        val strict = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { isLenient = false }
-        val parsed = strict.parse(value) ?: return false
-        strict.format(parsed) == value
-    } catch (_: Exception) { false }
+    private fun validDate(value: String): Boolean {
+        return try {
+            if (!value.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) false
+            else {
+                val strict = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { isLenient = false }
+                val parsed = strict.parse(value)
+                parsed != null && strict.format(parsed) == value
+            }
+        } catch (_: Exception) { false }
+    }
     private fun formatDate(value: String): String = try { displayDate.format(dateFormat.parse(value)!!) } catch (_: Exception) { value }
     private fun card() = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(12), dp(14), dp(12)); setBackgroundColor(0xFFFFFFFF.toInt())
