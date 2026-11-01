@@ -76,17 +76,31 @@ class MainActivity : Activity() {
     private fun render() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(18), dp(18), dp(12))
+            gravity = Gravity.TOP
+            setPadding(dp(14), dp(10), dp(14), dp(12))
             setBackgroundColor(0xFFF3F5F8.toInt())
         }
-        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        header.addView(label("ProControl", 27f, 0xFF17243A.toInt(), true), LinearLayout.LayoutParams(0, -2, 1f))
-        header.addView(Button(this).apply { text = "Итоги"; setOnClickListener { showOverallStats() } })
-        header.addView(Button(this).apply { text = "Графики"; setOnClickListener { showCharts() } })
-        header.addView(Button(this).apply { text = "Периоды"; setOnClickListener { showArchive() } })
-        header.addView(Button(this).apply { text = "Настройки"; setOnClickListener { showRatesDialog() } })
-        root.addView(header)
-        root.addView(label("Учёт тоннажа и расчёт заработка", 14f, 0xFF68758A.toInt()))
+        root.addView(label("ProControl", 25f, 0xFF17243A.toInt(), true))
+        val navRow1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        val navRow2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        fun navButton(caption: String, action: () -> Unit): Button = Button(this).apply {
+            text = caption
+            isAllCaps = false
+            textSize = 13f
+            setTextColor(0xFF24344D.toInt())
+            backgroundTintList = android.content.res.ColorStateList.valueOf(0xFFE1E8F1.toInt())
+            setOnClickListener { action() }
+            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply {
+                setMargins(dp(3), dp(2), dp(3), dp(5))
+            }
+        }
+        navRow1.addView(navButton("Итоги", ::showOverallStats))
+        navRow1.addView(navButton("Графики", ::showCharts))
+        navRow2.addView(navButton("Периоды", ::showArchive))
+        navRow2.addView(navButton("Настройки", ::showRatesDialog))
+        root.addView(navRow1)
+        root.addView(navRow2)
+        root.addView(label("Учёт тоннажа и расчёт заработка", 13f, 0xFF68758A.toInt()))
 
         val cleanTotal = entries.sumOf { it.clean }
         val scrapTotal = entries.sumOf { it.scrap }
@@ -201,7 +215,11 @@ class MainActivity : Activity() {
                 root.addView(row)
             }
         }
-        setContentView(ScrollView(this).apply { addView(root) })
+        setContentView(ScrollView(this).apply {
+            isFillViewport = true
+            isVerticalScrollBarEnabled = false
+            addView(root, ScrollView.LayoutParams(-1, -2))
+        })
     }
 
     private fun findCalendarEntry(date: String): Entry? {
