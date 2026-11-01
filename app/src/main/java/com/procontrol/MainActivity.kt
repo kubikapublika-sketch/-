@@ -204,7 +204,14 @@ class MainActivity : Activity() {
                             saved != null -> 0xFFE4F4EC.toInt()
                             else -> 0xFFFFFFFF.toInt()
                         })
-                        setOnClickListener { showCalendarEntry(dayDate) }
+                        setOnClickListener {
+                            if (saved != null) shareProductionReceipt(dayDate)
+                            else showCalendarEntry(dayDate)
+                        }
+                        setOnLongClickListener {
+                            showCalendarEntry(dayDate)
+                            true
+                        }
                     }
                     weekRow.addView(cell, LinearLayout.LayoutParams(0, dp(48), 1f).apply {
                         setMargins(dp(2), dp(2), dp(2), dp(2))
