@@ -137,7 +137,7 @@ class MainActivity : Activity() {
             row.addView(label(money(entry.clean * cleanRate + entry.scrap * scrapRate) + " сом", 16f, 0xFF087B58.toInt(), true))
             if (entry.note.isNotBlank()) row.addView(label(entry.note, 12f, 0xFF68758A.toInt()))
             row.addView(Button(this).apply {
-                text = "Удалить запись"
+                text = "⋮"
                 setOnClickListener {
                     AlertDialog.Builder(this@MainActivity).setMessage("Удалить запись за " + formatDate(entry.date) + "?")
                         .setNegativeButton("Отмена", null)
