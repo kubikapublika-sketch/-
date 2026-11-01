@@ -528,8 +528,21 @@ class MainActivity : Activity() {
         if (data.isEmpty()) { toast("Пока нет данных для графиков"); return }
         val chart = ProductionChart(data)
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(8), dp(12), dp(4)) }
-        box.addView(label("Деньги · Тоннаж · Брак", 13f, 0xFF34445B.toInt(), true))
-        box.addView(label("Увеличение двумя пальцами, перемещение одним пальцем, нажатие на точку показывает значения.", 11f, 0xFF68758A.toInt()))
+        box.addView(label("Показатели по дням", 15f, 0xFF17243A.toInt(), true))
+        box.addView(label("Легенда графика", 12f, 0xFF68758A.toInt(), true))
+        val legend = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(4), dp(4), dp(4), dp(8)) }
+        fun legendRow(color: Int, caption: String) {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            row.addView(View(this@MainActivity).apply { setBackgroundColor(color) },
+                LinearLayout.LayoutParams(dp(12), dp(12)).apply { rightMargin = dp(8) })
+            row.addView(label(caption, 13f, 0xFF34445B.toInt()))
+            legend.addView(row)
+        }
+        legendRow(Color.rgb(37, 99, 235), "Заработок, сом")
+        legendRow(Color.rgb(22, 163, 74), "Чистая продукция, кг")
+        legendRow(Color.rgb(220, 38, 38), "Брак, кг")
+        box.addView(legend)
+        box.addView(label("Увеличение двумя пальцами, перемещение одним пальцем. Нажми на точку, чтобы увидеть значения.", 11f, 0xFF68758A.toInt()))
         box.addView(chart, LinearLayout.LayoutParams(-1, dp(340)))
         box.addView(Button(this).apply { text = "Сбросить масштаб"; setOnClickListener { chart.reset() } })
         AlertDialog.Builder(this).setTitle("Графики за всё время").setView(box).setPositiveButton("Закрыть", null).show()
@@ -596,9 +609,9 @@ class MainActivity : Activity() {
                     canvas.drawCircle(l + (calendarDaysBetween(data.first().date, e.date) - 1) * step, b - (value(e) / max).toFloat() * (b - t), dp(2).toFloat(), p)
                 }
             }
-            line({ it.clean * cleanRate + it.scrap * scrapRate }, Color.rgb(22, 163, 74))
-            line({ it.clean }, Color.rgb(37, 99, 235))
-            line({ it.scrap }, Color.rgb(217, 119, 6))
+            line({ it.clean * cleanRate + it.scrap * scrapRate }, Color.rgb(37, 99, 235))
+            line({ it.clean }, Color.rgb(22, 163, 74))
+            line({ it.scrap }, Color.rgb(220, 38, 38))
             canvas.restoreToCount(save)
             p.color = Color.DKGRAY; p.textSize = dp(10).toFloat()
             canvas.drawText(formatDate(data.first().date), l, height - dp(10).toFloat(), p)
