@@ -288,7 +288,7 @@ class MainActivity : Activity() {
                 val span = calendarDaysBetween(data.first().date, data.last().date).coerceAtLeast(2) - 1
                 val step = (width - dp(52)).toFloat() / span
                 val index = data.indices.minByOrNull { idx ->
-                    kotlin.math.abs((left + (calendarDaysBetween(data.first().date, data[idx].date) - 1) * step) * zoom + shift - e.x)
+                    kotlin.math.abs(left + (calendarDaysBetween(data.first().date, data[idx].date) - 1) * step * zoom + shift - e.x)
                 } ?: 0
                 val item = data[index]
                 AlertDialog.Builder(this@MainActivity).setTitle(formatDate(item.date))
