@@ -35,6 +35,7 @@ class MainActivity : Activity() {
     private var scrapRate = 75.0
     private var entries = mutableListOf<Entry>()
     private var periodStart = ""
+    private var periodEnd = ""
     private var archiveEditing = false
     private var selectedArchiveIndex = -1
 
@@ -46,6 +47,9 @@ class MainActivity : Activity() {
         scrapRate = prefs.getString("scrap_rate", "75")?.toDoubleOrNull() ?: 75.0
         periodStart = prefs.getString("period_start", null) ?: dateFormat.format(Date()).also {
             prefs.edit().putString("period_start", it).apply()
+        }
+        periodEnd = prefs.getString("period_end", null) ?: dateFormat.format(Date()).also {
+            prefs.edit().putString("period_end", it).apply()
         }
         archiveEditing = prefs.getBoolean("archive_editing", false)
         loadEntries()
@@ -93,7 +97,7 @@ class MainActivity : Activity() {
         val averagePerDay = if (days > 0) earnings / days else 0.0
         val summary = card()
         summary.addView(label("ТЕКУЩИЙ РАСЧЁТНЫЙ ПЕРИОД", 12f, 0xFF68758A.toInt(), true))
-        summary.addView(label(formatDate(periodStart) + " · открыт", 14f, 0xFF17243A.toInt(), true))
+        summary.addView(label(formatDate(periodStart) + " - " + formatDate(periodEnd) + " · открыт", 14f, 0xFF17243A.toInt(), true))
         summary.addView(label("Начислено всего", 13f, 0xFF68758A.toInt()))
         summary.addView(label(money(earnings) + " сом", 30f, 0xFF087B58.toInt(), true))
         summary.addView(label("Средний заработок в день", 13f, 0xFF68758A.toInt()))
@@ -101,8 +105,8 @@ class MainActivity : Activity() {
         summary.addView(label("Чистая продукция: " + qty(cleanTotal) + " кг", 14f, 0xFF26364D.toInt()))
         summary.addView(label("Брак: " + qty(scrapTotal) + " кг", 14f, 0xFF26364D.toInt()))
         summary.addView(label("Прошло дней: " + days + " · Смен внесено: " + entries.size, 12f, 0xFF68758A.toInt()))
-        summary.addView(label("Период: " + formatDate(periodStart) + " - " + formatDate(dateFormat.format(Date())), 12f, 0xFF68758A.toInt()))
-        summary.addView(Button(this).apply { text = "Изменить начало периода"; setOnClickListener { changeCurrentPeriodStart() } })
+        summary.addView(label("Границы периода: " + formatDate(periodStart) + " - " + formatDate(periodEnd), 12f, 0xFF68758A.toInt()))
+        summary.addView(Button(this).apply { text = "Задать даты периода"; setOnClickListener { changeCurrentPeriodDates() } })
         root.addView(summary)
 
         val addTitle = label("Добавить смену", 19f, 0xFF17243A.toInt(), true)
@@ -132,7 +136,7 @@ class MainActivity : Activity() {
                 if (cleanKg == null || scrapKg == null || clean < 0 || scrap < 0) {
                     toast("Введи оба значения. Ноль тоже можно."); return@setOnClickListener
                 }
-                if (date < periodStart || date > dateFormat.format(Date())) { toast("Выбери дату внутри открытого периода"); return@setOnClickListener }
+                if (date < periodStart || date > periodEnd || date > dateFormat.format(Date())) { toast("Дата должна быть внутри открытого периода и не позже сегодня"); return@setOnClickListener }
                 if (allKnownDates().contains(date)) { toast("За эту дату запись уже существует"); return@setOnClickListener }
                 val newEntry = Entry(date, clean, scrap, noteInput.text.toString().trim())
                 entries.add(newEntry)
@@ -200,8 +204,8 @@ class MainActivity : Activity() {
                 if (!validDate(date) || clean == null || scrap == null || clean < 0 || scrap < 0) {
                     toast("Проверь дату и значения в кг"); return@setPositiveButton
                 }
-                if (date < periodStart || date > dateFormat.format(Date())) {
-                    toast("Дата должна входить в текущий открытый период"); return@setPositiveButton
+                if (date < periodStart || date > periodEnd || date > dateFormat.format(Date())) {
+                    toast("Дата должна быть внутри открытого периода и не позже сегодня"); return@setPositiveButton
                 }
                 if (allKnownDates().contains(date) && date != entry.date) {
                     toast("За эту дату запись уже существует"); return@setPositiveButton
@@ -220,7 +224,7 @@ class MainActivity : Activity() {
         val pay = clean * cleanRate + scrap * scrapRate
         val days = calendarDays()
         val average = if (days > 0) pay / days else 0.0
-        val end = dateFormat.format(Date())
+        val end = periodEnd
         AlertDialog.Builder(this)
             .setTitle("Закрыть расчётный период?")
             .setMessage("Период: " + formatDate(periodStart) + " – " + formatDate(end) +
@@ -240,9 +244,11 @@ class MainActivity : Activity() {
                     .put("start", periodStart).put("end", end)
                     .put("clean", clean).put("scrap", scrap).put("records", recordArray))
                 val nextStart = nextCalendarDate(end)
+                val nextEnd = maxOf(nextStart, dateFormat.format(Date()))
                 prefs.edit().putString("archive", archive.toString()).putString("entries", "[]")
-                    .putString("period_start", nextStart).apply()
+                    .putString("period_start", nextStart).putString("period_end", nextEnd).apply()
                 periodStart = nextStart
+                periodEnd = nextEnd
                 entries.clear()
                 selectedArchiveIndex = -1
                 toast("Период закрыт и сохранён в архив")
@@ -363,7 +369,6 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(8), dp(16), dp(8))
         }
         val history = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
-        box.addView(Button(this).apply { text = "Создать прошлый период"; setOnClickListener { createPastPeriod() } })
         if (history.length() > 0 || archiveEditing) {
             val historicalCard = card()
             historicalCard.addView(label("Исторические смены", 15f, 0xFF17243A.toInt(), true))
@@ -574,27 +579,43 @@ class MainActivity : Activity() {
             }.show()
     }
 
-    private fun changeCurrentPeriodStart() {
-        showDatePicker(periodStart) { picked ->
-            val today = dateFormat.format(Date())
-            val archive = JSONArray(prefs.getString("archive", "[]") ?: "[]")
-            var latestArchivedEnd = ""
-            for (i in 0 until archive.length()) {
-                val end = archive.optJSONObject(i)?.optString("end") ?: ""
-                if (end > latestArchivedEnd) latestArchivedEnd = end
-            }
-            if (picked > today || (latestArchivedEnd.isNotEmpty() && picked <= latestArchivedEnd)) {
-                toast("Начало должно быть после последнего закрытого периода и не позже сегодня")
-                return@showDatePicker
-            }
-            if (entries.any { it.date < picked }) {
-                toast("Есть записи раньше выбранной даты. Сначала проверь их.")
-                return@showDatePicker
-            }
-            periodStart = picked
-            prefs.edit().putString("period_start", picked).apply()
-            render()
+    private fun changeCurrentPeriodDates() {
+        var newStart = periodStart
+        var newEnd = periodEnd
+        val startButton = Button(this).apply { text = "Начало: " + formatDate(newStart) }
+        val endButton = Button(this).apply { text = "Окончание: " + formatDate(newEnd) }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+            addView(fieldCaption("Период с")); addView(startButton, matchWrap())
+            addView(fieldCaption("Период по")); addView(endButton, matchWrap())
         }
+        startButton.setOnClickListener { showDatePicker(newStart) { newStart = it; startButton.text = "Начало: " + formatDate(it) } }
+        endButton.setOnClickListener { showDatePicker(newEnd) { newEnd = it; endButton.text = "Окончание: " + formatDate(it) } }
+        AlertDialog.Builder(this).setTitle("Границы открытого периода").setView(box)
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Сохранить") { _, _ ->
+                val today = dateFormat.format(Date())
+                val archive = JSONArray(prefs.getString("archive", "[]") ?: "[]")
+                var latestArchivedEnd = ""
+                for (i in 0 until archive.length()) latestArchivedEnd = maxOf(latestArchivedEnd, archive.optJSONObject(i)?.optString("end") ?: "")
+                if (!validDate(newStart) || !validDate(newEnd) || newStart > newEnd || newStart > today || newEnd < today) {
+                    toast("Проверь даты: начало не позже конца, а сегодня должно входить в период")
+                    return@setPositiveButton
+                }
+                if (latestArchivedEnd.isNotEmpty() && newStart <= latestArchivedEnd) {
+                    toast("Новый период пересекается с уже закрытым архивным периодом")
+                    return@setPositiveButton
+                }
+                if (entries.any { it.date < newStart || it.date > newEnd }) {
+                    toast("В периоде уже есть записи за пределами новых дат")
+                    return@setPositiveButton
+                }
+                periodStart = newStart
+                periodEnd = newEnd
+                prefs.edit().putString("period_start", newStart).putString("period_end", newEnd).apply()
+                render()
+            }.show()
     }
 
     private fun createPastPeriod() {
