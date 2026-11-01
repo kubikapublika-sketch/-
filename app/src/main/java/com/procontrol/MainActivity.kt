@@ -564,8 +564,10 @@ class MainActivity : Activity() {
                     AlertDialog.Builder(this).setTitle("Подтвердить импорт")
                         .setMessage("Новых записей: $count. Существующие даты не будут перезаписаны.")
                         .setNegativeButton("Отмена", null).setPositiveButton("Импортировать") { _, _ ->
-                            newCurrent.forEach { if (known.add(it.date)) entries.add(it) }
                             val archive = JSONArray(prefs.getString("archive", "[]") ?: "[]")
+                            val freshPhone = entries.isEmpty() && archive.length() == 0
+                            newCurrent.forEach { if (known.add(it.date)) entries.add(it) }
+                            if (freshPhone && validDate(root.optString("currentStart"))) periodStart = root.optString("currentStart")
                             for (i in 0 until newPeriods.length()) {
                                 val p = newPeriods.getJSONObject(i)
                                 val start = p.getString("a"); val end = p.getString("b")
@@ -646,8 +648,10 @@ class MainActivity : Activity() {
 
     private fun calendarDays(): Int = calendarDaysBetween(periodStart, dateFormat.format(Date()))
     private fun validDate(value: String): Boolean = try {
-        dateFormat.isLenient = false
-        dateFormat.parse(value) != null
+        if (!value.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) return false
+        val strict = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { isLenient = false }
+        val parsed = strict.parse(value) ?: return false
+        strict.format(parsed) == value
     } catch (_: Exception) { false }
     private fun formatDate(value: String): String = try { displayDate.format(dateFormat.parse(value)!!) } catch (_: Exception) { value }
     private fun card() = LinearLayout(this).apply {
