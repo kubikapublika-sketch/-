@@ -372,9 +372,6 @@ class MainActivity : Activity() {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), 0)
-            addView(fieldCaption("Чистая продукция, кг")); addView(cleanInput, matchWrap())
-            addView(fieldCaption("Брак, кг")); addView(scrapInput, matchWrap())
-            addView(fieldCaption("Комментарий")); addView(noteInput, matchWrap())
             addView(Button(this@MainActivity).apply {
                 text = "Поделиться чеком"
                 isAllCaps = false
@@ -382,6 +379,9 @@ class MainActivity : Activity() {
                     shareProductionReceipt(date)
                 }
             }, matchWrap())
+            addView(fieldCaption("Чистая продукция, кг")); addView(cleanInput, matchWrap())
+            addView(fieldCaption("Брак, кг")); addView(scrapInput, matchWrap())
+            addView(fieldCaption("Комментарий")); addView(noteInput, matchWrap())
         }
         val builder = AlertDialog.Builder(this).setTitle(formatDate(date)).setView(box)
             .setNegativeButton("Отмена", null).setPositiveButton("Сохранить", null)
