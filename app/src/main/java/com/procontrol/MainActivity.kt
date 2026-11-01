@@ -195,14 +195,7 @@ class MainActivity : Activity() {
                             saved != null -> 0xFFE4F4EC.toInt()
                             else -> 0xFFFFFFFF.toInt()
                         })
-                        setOnClickListener {
-                            if (saved != null) shareProductionReceipt(dayDate)
-                            else showCalendarEntry(dayDate)
-                        }
-                        setOnLongClickListener {
-                            showCalendarEntry(dayDate)
-                            true
-                        }
+                        setOnClickListener { showCalendarEntry(dayDate) }
                     }
                     weekRow.addView(cell, LinearLayout.LayoutParams(0, dp(48), 1f).apply {
                         setMargins(dp(2), dp(2), dp(2), dp(2))
@@ -382,6 +375,20 @@ class MainActivity : Activity() {
             addView(fieldCaption("Чистая продукция, кг")); addView(cleanInput, matchWrap())
             addView(fieldCaption("Брак, кг")); addView(scrapInput, matchWrap())
             addView(fieldCaption("Комментарий")); addView(noteInput, matchWrap())
+            addView(Button(this@MainActivity).apply {
+                text = "Поделиться чеком"
+                isAllCaps = false
+                setOnClickListener {
+                    val cleanKg = cleanInput.text.toString().replace(',', '.').toDoubleOrNull()
+                    val scrapKg = scrapInput.text.toString().replace(',', '.').toDoubleOrNull()
+                    if (cleanKg == null || scrapKg == null || cleanKg < 0 || scrapKg < 0) {
+                        toast("Проверь значения чистой продукции и брака")
+                    } else {
+                        saveCalendarEntry(Entry(date, cleanKg / 1000.0, scrapKg / 1000.0, noteInput.text.toString().trim()))
+                        shareProductionReceipt(date)
+                    }
+                }
+            }, matchWrap())
         }
         val builder = AlertDialog.Builder(this).setTitle(formatDate(date)).setView(box)
             .setNegativeButton("Отмена", null).setPositiveButton("Сохранить", null)
