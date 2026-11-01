@@ -102,6 +102,7 @@ class MainActivity : Activity() {
         summary.addView(label("Брак: " + qty(scrapTotal) + " кг", 14f, 0xFF26364D.toInt()))
         summary.addView(label("Прошло дней: " + days + " · Смен внесено: " + entries.size, 12f, 0xFF68758A.toInt()))
         summary.addView(label("Период: " + formatDate(periodStart) + " - " + formatDate(dateFormat.format(Date())), 12f, 0xFF68758A.toInt()))
+        summary.addView(Button(this).apply { text = "Изменить начало периода"; setOnClickListener { changeCurrentPeriodStart() } })
         root.addView(summary)
 
         val addTitle = label("Добавить смену", 19f, 0xFF17243A.toInt(), true)
@@ -362,6 +363,7 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(8), dp(16), dp(8))
         }
         val history = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
+        box.addView(Button(this).apply { text = "Создать прошлый период"; setOnClickListener { createPastPeriod() } })
         if (history.length() > 0 || archiveEditing) {
             val historicalCard = card()
             historicalCard.addView(label("Исторические смены", 15f, 0xFF17243A.toInt(), true))
@@ -568,6 +570,75 @@ class MainActivity : Activity() {
                 period.put("records", records).put("clean", sumRecords(records, "clean")).put("scrap", sumRecords(records, "scrap"))
                 a.put(periodIndex, period)
                 prefs.edit().putString("archive", a.toString()).apply()
+                showArchive()
+            }.show()
+    }
+
+    private fun changeCurrentPeriodStart() {
+        showDatePicker(periodStart) { picked ->
+            val today = dateFormat.format(Date())
+            val archive = JSONArray(prefs.getString("archive", "[]") ?: "[]")
+            var latestArchivedEnd = ""
+            for (i in 0 until archive.length()) {
+                val end = archive.optJSONObject(i)?.optString("end") ?: ""
+                if (end > latestArchivedEnd) latestArchivedEnd = end
+            }
+            if (picked > today || (latestArchivedEnd.isNotEmpty() && picked <= latestArchivedEnd)) {
+                toast("Начало должно быть после последнего закрытого периода и не позже сегодня")
+                return@showDatePicker
+            }
+            if (entries.any { it.date < picked }) {
+                toast("Есть записи раньше выбранной даты. Сначала проверь их.")
+                return@showDatePicker
+            }
+            periodStart = picked
+            prefs.edit().putString("period_start", picked).apply()
+            render()
+        }
+    }
+
+    private fun createPastPeriod() {
+        val today = dateFormat.format(Date())
+        val start = EditText(this).apply { hint = "Начало ГГГГ-ММ-ДД" }
+        val end = EditText(this).apply { hint = "Конец ГГГГ-ММ-ДД" }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+            addView(fieldCaption("Начало периода")); addView(start)
+            addView(fieldCaption("Конец периода")); addView(end)
+        }
+        AlertDialog.Builder(this).setTitle("Создать прошлый период").setView(box)
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Создать") { _, _ ->
+                val a = start.text.toString().trim()
+                val b = end.text.toString().trim()
+                if (!validDate(a) || !validDate(b) || a > b || b >= periodStart || b > today) {
+                    toast("Укажи корректные даты до начала текущего периода")
+                    return@setPositiveButton
+                }
+                val archive = JSONArray(prefs.getString("archive", "[]") ?: "[]")
+                for (i in 0 until archive.length()) {
+                    val p = archive.optJSONObject(i) ?: continue
+                    val ps = p.optString("start")
+                    val pe = p.optString("end")
+                    if (a <= pe && b >= ps) {
+                        toast("Этот диапазон пересекается с периодом в архиве")
+                        return@setPositiveButton
+                    }
+                }
+                val period = JSONObject().put("start", a).put("end", b)
+                    .put("records", JSONArray()).put("clean", 0.0).put("scrap", 0.0)
+                archive.put(period)
+                val sorted = (0 until archive.length()).map { archive.getJSONObject(it) }
+                    .sortedBy { it.optString("start") }
+                val rebuilt = JSONArray()
+                sorted.forEachIndexed { index, item ->
+                    val number = index + 1
+                    item.put("number", number).put("name", "Период " + number)
+                    rebuilt.put(item)
+                }
+                prefs.edit().putString("archive", rebuilt.toString()).apply()
+                selectedArchiveIndex = 0
                 showArchive()
             }.show()
     }
