@@ -62,6 +62,7 @@ class MainActivity : Activity() {
         }
         val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         header.addView(label("ProControl", 27f, 0xFF17243A.toInt(), true), LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(Button(this).apply { text = "Архив"; setOnClickListener { showArchive() } })
         header.addView(Button(this).apply { text = "Тарифы"; setOnClickListener { showRatesDialog() } })
         root.addView(header)
         root.addView(label("Учёт тоннажа и расчёт заработка", 14f, 0xFF68758A.toInt()))
@@ -80,7 +81,8 @@ class MainActivity : Activity() {
         summary.addView(label(money(averagePerDay) + " сом/день", 22f, 0xFF1557A6.toInt(), true))
         summary.addView(label("Чистая продукция: " + qty(cleanTotal) + " т", 14f, 0xFF26364D.toInt()))
         summary.addView(label("Брак: " + qty(scrapTotal) + " т", 14f, 0xFF26364D.toInt()))
-        summary.addView(label("Календарных дней: " + days + " · Записей: " + entries.size, 12f, 0xFF68758A.toInt()))
+        summary.addView(label("Прошло дней: " + days + " · Смен внесено: " + entries.size, 12f, 0xFF68758A.toInt()))
+        summary.addView(label("Период: " + formatDate(periodStart) + " - " + formatDate(dateFormat.format(Date())), 12f, 0xFF68758A.toInt()))
         root.addView(summary)
 
         val addTitle = label("Добавить смену", 19f, 0xFF17243A.toInt(), true)
@@ -175,6 +177,42 @@ class MainActivity : Activity() {
                 toast("Период закрыт и сохранён в архив")
                 render()
             }.show()
+    }
+
+    private fun showArchive() {
+        val archive = try {
+            JSONArray(prefs.getString("archive", "[]") ?: "[]")
+        } catch (_: Exception) {
+            JSONArray()
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+        }
+        if (archive.length() == 0) {
+            box.addView(label("Архив пока пуст. Закрой расчётный период, и его результат появится здесь.", 14f, 0xFF68758A.toInt()))
+        } else {
+            for (i in archive.length() - 1 downTo 0) {
+                val item = archive.getJSONObject(i)
+                val start = item.optString("start")
+                val end = item.optString("end")
+                val days = item.optInt("days")
+                val pay = item.optDouble("pay")
+                val average = item.optDouble("averagePerDay")
+                val clean = item.optDouble("clean")
+                val scrap = item.optDouble("scrap")
+                val record = card()
+                record.addView(label(formatDate(start) + " - " + formatDate(end), 15f, 0xFF17243A.toInt(), true))
+                record.addView(label("Прошло дней: " + days, 13f, 0xFF68758A.toInt()))
+                record.addView(label("Заработано: " + money(pay) + " сом", 19f, 0xFF087B58.toInt(), true))
+                record.addView(label("В среднем: " + money(average) + " сом/день", 15f, 0xFF1557A6.toInt(), true))
+                record.addView(label("Чистая продукция: " + qty(clean) + " т · Брак: " + qty(scrap) + " т", 12f, 0xFF68758A.toInt()))
+                box.addView(record)
+            }
+        }
+        val scroll = ScrollView(this).apply { addView(box) }
+        AlertDialog.Builder(this).setTitle("История расчётных периодов").setView(scroll)
+            .setPositiveButton("Закрыть", null).show()
     }
 
     private fun showRatesDialog() {
