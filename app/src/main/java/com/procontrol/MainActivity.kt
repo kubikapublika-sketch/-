@@ -192,7 +192,10 @@ class MainActivity : Activity() {
                 if (!validDate(date) || clean == null || scrap == null || clean < 0 || scrap < 0) {
                     toast("Проверь дату и значения"); return@setPositiveButton
                 }
-                if (entries.any { it.date == date && it.date != entry.date }) {
+                if (date < periodStart || date > dateFormat.format(Date())) {
+                    toast("Дата должна входить в текущий открытый период"); return@setPositiveButton
+                }
+                if (allKnownDates().contains(date) && date != entry.date) {
                     toast("За эту дату запись уже существует"); return@setPositiveButton
                 }
                 entries.remove(entry)
@@ -365,7 +368,26 @@ class MainActivity : Activity() {
                         line.addView(label(formatDate(e.optString("date")) + " · " + qty(e.optDouble("clean")) + " т · брак " + qty(e.optDouble("scrap")) + " т", 12f, 0xFF34445B.toInt()), LinearLayout.LayoutParams(0, -2, 1f))
                         if (archiveEditing) line.addView(Button(this).apply {
                             text = "⋮"
-                            setOnClickListener { editArchivedRecord(i, j) }
+                            setOnClickListener {
+                                AlertDialog.Builder(this@MainActivity)
+                                    .setItems(arrayOf("Изменить запись", "Удалить запись")) { _, choice ->
+                                        if (choice == 0) editArchivedRecord(i, j)
+                                        else AlertDialog.Builder(this@MainActivity).setMessage("Удалить эту запись?")
+                                            .setNegativeButton("Отмена", null).setPositiveButton("Удалить") { _, _ ->
+                                                saved.remove(j)
+                                                item.put("records", saved)
+                                                var csum = 0.0; var ssum = 0.0
+                                                for (k in 0 until saved.length()) {
+                                                    csum += saved.getJSONObject(k).optDouble("clean")
+                                                    ssum += saved.getJSONObject(k).optDouble("scrap")
+                                                }
+                                                item.put("clean", csum).put("scrap", ssum)
+                                                archive.put(i, item)
+                                                prefs.edit().putString("archive", archive.toString()).apply()
+                                                showArchive()
+                                            }.show()
+                                    }.show()
+                            }
                         })
                         record.addView(line)
                     }
