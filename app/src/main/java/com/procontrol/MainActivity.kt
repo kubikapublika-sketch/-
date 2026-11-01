@@ -188,7 +188,6 @@ class MainActivity : Activity() {
     }
 
     private fun closePeriod() {
-        if (entries.isEmpty()) { toast("В периоде пока нет записей"); return }
         val clean = entries.sumOf { it.clean }
         val scrap = entries.sumOf { it.scrap }
         val pay = clean * cleanRate + scrap * scrapRate
@@ -204,10 +203,14 @@ class MainActivity : Activity() {
             .setNegativeButton("Отмена", null)
             .setPositiveButton("Закрыть") { _, _ ->
                 val archive = JSONArray(prefs.getString("archive", "[]") ?: "[]")
+                val recordArray = JSONArray()
+                entries.sortedBy { it.date }.forEach { e ->
+                    recordArray.put(JSONObject().put("date", e.date).put("clean", e.clean)
+                        .put("scrap", e.scrap).put("note", e.note))
+                }
                 archive.put(JSONObject().put("start", periodStart).put("end", end)
-                    .put("clean", clean).put("scrap", scrap).put("pay", pay)
-                    .put("days", days).put("averagePerDay", average))
-                val nextStart = dateFormat.format(Date(System.currentTimeMillis() + 86400000L))
+                    .put("clean", clean).put("scrap", scrap).put("records", recordArray))
+                val nextStart = nextCalendarDate(end)
                 prefs.edit().putString("archive", archive.toString()).putString("entries", "[]")
                     .putString("period_start", nextStart).apply()
                 periodStart = nextStart
@@ -271,6 +274,13 @@ class MainActivity : Activity() {
                     render()
                 }
             }.show()
+    }
+
+    private fun nextCalendarDate(value: String): String {
+        val calendar = java.util.Calendar.getInstance()
+        calendar.time = dateFormat.parse(value) ?: Date()
+        calendar.add(java.util.Calendar.DAY_OF_MONTH, 1)
+        return dateFormat.format(calendar.time)
     }
 
     private fun calendarDays(): Int {
