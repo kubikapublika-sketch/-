@@ -218,7 +218,7 @@ class MainActivity : Activity() {
         setContentView(ScrollView(this).apply {
             isFillViewport = true
             isVerticalScrollBarEnabled = false
-            addView(root, ScrollView.LayoutParams(-1, -2))
+            addView(root, android.view.ViewGroup.LayoutParams(-1, -2))
         })
     }
 
