@@ -504,7 +504,7 @@ class MainActivity : Activity() {
                     toast("Открытый период можно задать только до сегодняшней даты")
                     return@setPositiveButton
                 }
-                if (start <= periodStart && end >= periodStart) {
+                if (start <= today && end >= periodStart) {
                     toast("Этот диапазон пересекается с текущим периодом. Пропущенные смены текущего периода внеси прямо в него.")
                     return@setPositiveButton
                 }
