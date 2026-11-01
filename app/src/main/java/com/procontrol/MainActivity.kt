@@ -136,15 +136,6 @@ class MainActivity : Activity() {
         summary.addView(label(money(averagePerDay) + " сом/день", 19f, 0xFF1557A6.toInt(), true))
         summary.addView(label("Календарных дней: $days · Смен внесено: " + entries.size, 12f, 0xFF68758A.toInt()))
         root.addView(summary)
-        root.addView(Button(this).apply {
-            text = "Поделиться чеком"
-            setOnClickListener {
-                val today = dateFormat.format(Date())
-                showDatePicker(today) { selectedDate -> shareProductionReceipt(selectedDate) }
-            }
-            layoutParams = LinearLayout.LayoutParams(-1, dp(44)).apply { bottomMargin = dp(8) }
-        })
-
         val calendarCard = card()
         val monthHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         monthHeader.addView(Button(this).apply {
