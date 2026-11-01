@@ -313,7 +313,7 @@ class MainActivity : Activity() {
 
         try {
             val values = ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME, "ProControl_\${today}.png")
+                put(MediaStore.Images.Media.DISPLAY_NAME, "ProControl_${today}.png")
                 put(MediaStore.Images.Media.MIME_TYPE, "image/png")
                 put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/ProControl")
             }
@@ -331,7 +331,7 @@ class MainActivity : Activity() {
             startActivity(Intent.createChooser(intent, "Отправить чек"))
         } catch (e: Exception) {
             bitmap.recycle()
-            toast("Не удалось подготовить чек: \${e.message}")
+            toast("Не удалось подготовить чек: ${e.message}")
         }
     }
 
