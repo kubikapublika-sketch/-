@@ -284,8 +284,11 @@ class MainActivity : Activity() {
             }
             override fun onSingleTapUp(e: MotionEvent): Boolean {
                 val left = dp(38).toFloat()
-                val step = (width - dp(52)).toFloat() / (data.size.coerceAtLeast(2) - 1)
-                val index = (((e.x - left - shift) / (step * zoom)).toInt()).coerceIn(0, data.lastIndex)
+                val span = calendarDaysBetween(data.first().date, data.last().date).coerceAtLeast(2) - 1
+                val step = (width - dp(52)).toFloat() / span
+                val index = data.indices.minByOrNull { idx ->
+                    kotlin.math.abs((left + (calendarDaysBetween(data.first().date, data[idx].date) - 1) * step) * zoom + shift - e.x)
+                } ?: 0
                 val item = data[index]
                 AlertDialog.Builder(this@MainActivity).setTitle(formatDate(item.date))
                     .setMessage("Заработок: " + money(item.clean * cleanRate + item.scrap * scrapRate) +
@@ -302,7 +305,8 @@ class MainActivity : Activity() {
             val t = dp(18).toFloat(); val b = height - dp(34).toFloat()
             p.color = 0xFFD5DCE5.toInt(); p.strokeWidth = dp(1).toFloat()
             for (i in 0..4) { val y = t + (b - t) * i / 4f; canvas.drawLine(l, y, r, y, p) }
-            val step = (r - l) / (data.size.coerceAtLeast(2) - 1)
+            val spanDays = (calendarDaysBetween(data.first().date, data.last().date) - 1).coerceAtLeast(1)
+            val step = (r - l) / spanDays
             val save = canvas.save()
             canvas.clipRect(l, t, r, b)
             canvas.translate(shift, 0f); canvas.scale(zoom, 1f, l, 0f)
@@ -311,14 +315,14 @@ class MainActivity : Activity() {
                 val path = Path()
                 p.color = color; p.style = Paint.Style.STROKE; p.strokeWidth = dp(2).toFloat()
                 data.forEachIndexed { i, e ->
-                    val x = l + i * step
+                    val x = l + (calendarDaysBetween(data.first().date, e.date) - 1) * step
                     val y = b - (value(e) / max).toFloat() * (b - t)
                     if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
                 }
                 canvas.drawPath(path, p)
                 p.style = Paint.Style.FILL
                 data.forEachIndexed { i, e ->
-                    canvas.drawCircle(l + i * step, b - (value(e) / max).toFloat() * (b - t), dp(2).toFloat(), p)
+                    canvas.drawCircle(l + (calendarDaysBetween(data.first().date, e.date) - 1) * step, b - (value(e) / max).toFloat() * (b - t), dp(2).toFloat(), p)
                 }
             }
             line({ it.clean * cleanRate + it.scrap * scrapRate }, Color.rgb(22, 163, 74))
@@ -480,9 +484,18 @@ class MainActivity : Activity() {
     }
 
     private fun calendarDaysBetween(start: String, end: String): Int {
-        val a = dateFormat.parse(start)?.time ?: return 0
-        val b = dateFormat.parse(end)?.time ?: return 0
-        return (((b - a) / 86400000L).toInt() + 1).coerceAtLeast(0)
+        return try {
+            val cal = java.util.Calendar.getInstance()
+            cal.time = dateFormat.parse(start) ?: return 0
+            val finish = java.util.Calendar.getInstance()
+            finish.time = dateFormat.parse(end) ?: return 0
+            var count = 0
+            while (!cal.after(finish) && count < 50000) {
+                count++
+                cal.add(java.util.Calendar.DAY_OF_MONTH, 1)
+            }
+            count
+        } catch (_: Exception) { 0 }
     }
 
     private fun exportTransferCode() {
@@ -631,11 +644,7 @@ class MainActivity : Activity() {
         return dateFormat.format(calendar.time)
     }
 
-    private fun calendarDays(): Int {
-        val start = dateFormat.parse(periodStart)?.time ?: return 0
-        val today = dateFormat.parse(dateFormat.format(Date()))?.time ?: return 0
-        return (((today - start) / 86400000L).toInt() + 1).coerceAtLeast(0)
-    }
+    private fun calendarDays(): Int = calendarDaysBetween(periodStart, dateFormat.format(Date()))
     private fun validDate(value: String): Boolean = try {
         dateFormat.isLenient = false
         dateFormat.parse(value) != null
