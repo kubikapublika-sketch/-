@@ -15,6 +15,12 @@ import android.view.Gravity
 import android.widget.*
 import org.json.JSONArray
 import org.json.JSONObject
+import android.util.Base64
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.util.zip.DeflaterOutputStream
+import java.util.zip.InflaterInputStream
+import java.util.zip.CRC32
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -457,6 +463,116 @@ class MainActivity : Activity() {
         return (((b - a) / 86400000L).toInt() + 1).coerceAtLeast(0)
     }
 
+    private fun exportTransferCode() {
+        val root = JSONObject().put("v", 1).put("currentStart", periodStart)
+        val current = JSONArray()
+        entries.sortedBy { it.date }.forEach { e ->
+            current.put(JSONObject().put("d", e.date).put("c", e.clean).put("s", e.scrap).put("n", e.note))
+        }
+        root.put("current", current)
+        val periods = JSONArray(prefs.getString("archive", "[]") ?: "[]")
+        val safePeriods = JSONArray()
+        for (i in 0 until periods.length()) {
+            val p = periods.optJSONObject(i) ?: continue
+            val records = p.optJSONArray("records") ?: JSONArray()
+            val safeRecords = JSONArray()
+            for (j in 0 until records.length()) {
+                val e = records.optJSONObject(j) ?: continue
+                safeRecords.put(JSONObject().put("d", e.optString("date")).put("c", e.optDouble("clean"))
+                    .put("s", e.optDouble("scrap")).put("n", e.optString("note")))
+            }
+            safePeriods.put(JSONObject().put("a", p.optString("start")).put("b", p.optString("end")).put("r", safeRecords))
+        }
+        root.put("periods", safePeriods)
+        try {
+            val raw = root.toString().toByteArray(Charsets.UTF_8)
+            val zipped = ByteArrayOutputStream().also { out -> DeflaterOutputStream(out).use { it.write(raw) } }.toByteArray()
+            val crc = CRC32().apply { update(raw) }.value.toString(16)
+            val code = "PC1:$crc:" + Base64.encodeToString(zipped, Base64.NO_WRAP or Base64.URL_SAFE)
+            val field = EditText(this).apply { setText(code); minLines = 4; setTextIsSelectable(true) }
+            AlertDialog.Builder(this).setTitle("Код переноса")
+                .setMessage("Скопируй весь текст и отправь на другой телефон. Тарифы и заработок не передаются.")
+                .setView(field).setPositiveButton("Копировать") { _, _ ->
+                    val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("ProControl", code))
+                    toast("Код скопирован")
+                }.setNegativeButton("Закрыть", null).show()
+        } catch (_: Exception) { toast("Не удалось создать код") }
+    }
+
+    private fun importTransferCode() {
+        val field = EditText(this).apply { hint = "Вставь код PC1:..."; minLines = 4 }
+        AlertDialog.Builder(this).setTitle("Импорт данных").setView(field)
+            .setNegativeButton("Отмена", null).setPositiveButton("Проверить") { _, _ ->
+                try {
+                    val parts = field.text.toString().trim().split(':', limit = 3)
+                    if (parts.size != 3 || parts[0] != "PC1") throw Exception("Неверный формат кода")
+                    val zipped = Base64.decode(parts[2], Base64.NO_WRAP or Base64.URL_SAFE)
+                    val raw = InflaterInputStream(ByteArrayInputStream(zipped)).use { it.readBytes() }
+                    val crc = CRC32().apply { update(raw) }.value.toString(16)
+                    if (!crc.equals(parts[1], true)) throw Exception("Контрольная сумма не совпала")
+                    val root = JSONObject(String(raw, Charsets.UTF_8))
+                    if (root.optInt("v") != 1) throw Exception("Версия кода не поддерживается")
+                    val newCurrent = mutableListOf<Entry>()
+                    val ca = root.optJSONArray("current") ?: JSONArray()
+                    for (i in 0 until ca.length()) {
+                        val e = ca.getJSONObject(i); newCurrent.add(Entry(e.getString("d"), e.optDouble("c"), e.optDouble("s"), e.optString("n")))
+                    }
+                    val newPeriods = root.optJSONArray("periods") ?: JSONArray()
+                    var count = 0
+                    val known = allKnownDates()
+                    newCurrent.forEach { if (!known.contains(it.date)) count++ }
+                    for (i in 0 until newPeriods.length()) {
+                        val p = newPeriods.getJSONObject(i); val rs = p.optJSONArray("r") ?: JSONArray()
+                        for (j in 0 until rs.length()) if (!known.contains(rs.getJSONObject(j).optString("d"))) count++
+                    }
+                    AlertDialog.Builder(this).setTitle("Подтвердить импорт")
+                        .setMessage("Новых записей: $count. Существующие даты не будут перезаписаны.")
+                        .setNegativeButton("Отмена", null).setPositiveButton("Импортировать") { _, _ ->
+                            newCurrent.forEach { if (known.add(it.date)) entries.add(it) }
+                            val archive = JSONArray(prefs.getString("archive", "[]") ?: "[]")
+                            for (i in 0 until newPeriods.length()) {
+                                val p = newPeriods.getJSONObject(i)
+                                val start = p.getString("a"); val end = p.getString("b")
+                                var target: JSONObject? = null
+                                for (j in 0 until archive.length()) {
+                                    val existing = archive.optJSONObject(j)
+                                    if (existing?.optString("start") == start && existing.optString("end") == end) target = existing
+                                }
+                                if (target == null) {
+                                    target = JSONObject().put("start", start).put("end", end).put("records", JSONArray())
+                                    archive.put(target)
+                                }
+                                val records = target.optJSONArray("records") ?: JSONArray()
+                                val rs = p.optJSONArray("r") ?: JSONArray()
+                                for (j in 0 until rs.length()) {
+                                    val e = rs.getJSONObject(j); val d = e.getString("d")
+                                    if (known.add(d)) records.put(JSONObject().put("date", d).put("clean", e.optDouble("c"))
+                                        .put("scrap", e.optDouble("s")).put("note", e.optString("n")))
+                                }
+                                target.put("records", records)
+                                var cleanSum = 0.0; var scrapSum = 0.0
+                                for (j in 0 until records.length()) { cleanSum += records.getJSONObject(j).optDouble("clean"); scrapSum += records.getJSONObject(j).optDouble("scrap") }
+                                target.put("clean", cleanSum).put("scrap", scrapSum)
+                            }
+                            prefs.edit().putString("archive", archive.toString()).apply()
+                            entries.sortByDescending { it.date }; saveEntries()
+                            toast("Импорт завершён"); render()
+                        }.show()
+                } catch (e: Exception) { toast("Ошибка импорта: ${e.message}") }
+            }.show()
+    }
+
+    private fun allKnownDates(): MutableSet<String> {
+        val dates = entries.map { it.date }.toMutableSet()
+        val a = JSONArray(prefs.getString("archive", "[]") ?: "[]")
+        for (i in 0 until a.length()) {
+            val records = a.optJSONObject(i)?.optJSONArray("records") ?: continue
+            for (j in 0 until records.length()) dates.add(records.optJSONObject(j)?.optString("date") ?: "")
+        }
+        return dates
+    }
+
     private fun showRatesDialog() {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0) }
         val clean = numberInput("Сом за тонну").apply { setText(cleanRate.toString()) }
@@ -468,6 +584,8 @@ class MainActivity : Activity() {
         box.addView(fieldCaption("Тариф чистой продукции, сом/т")); box.addView(clean, matchWrap())
         box.addView(fieldCaption("Тариф брака, сом/т")); box.addView(scrap, matchWrap())
         box.addView(archiveSwitch)
+        box.addView(Button(this).apply { text = "Скопировать код переноса"; setOnClickListener { exportTransferCode() } })
+        box.addView(Button(this).apply { text = "Вставить код переноса"; setOnClickListener { importTransferCode() } })
         AlertDialog.Builder(this).setTitle("Настройки").setView(box)
             .setNegativeButton("Отмена", null)
             .setPositiveButton("Сохранить") { _, _ ->
