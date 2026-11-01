@@ -90,6 +90,8 @@ class MainActivity : Activity() {
 
         val cleanTotal = entries.sumOf { it.clean }
         val scrapTotal = entries.sumOf { it.scrap }
+        val totalTonnage = cleanTotal + scrapTotal
+        val scrapPercent = if (totalTonnage > 0.0) scrapTotal / totalTonnage * 100.0 else 0.0
         val earnings = cleanTotal * cleanRate + scrapTotal * scrapRate
         val today = dateFormat.format(Date())
         val days = calendarDays()
@@ -99,12 +101,14 @@ class MainActivity : Activity() {
         val summary = card()
         summary.addView(label("ТЕКУЩИЙ ПЕРИОД $currentNumber", 12f, 0xFF68758A.toInt(), true))
         summary.addView(label(formatDate(periodStart) + " - " + formatDate(today) + " · открыт", 14f, 0xFF17243A.toInt(), true))
+        summary.addView(label("ЧИСТАЯ ПРОДУКЦИЯ", 12f, 0xFF68758A.toInt(), true))
+        summary.addView(label(qty(cleanTotal) + " кг", 25f, 0xFF17243A.toInt(), true))
+        summary.addView(label("Брак: " + qty(scrapTotal) + " кг  ·  " + String.format(Locale("ru"), "%.1f", scrapPercent) + "%", 15f, 0xFFB45A32.toInt(), true))
+        summary.addView(label("Общий тоннаж: " + qty(totalTonnage) + " кг", 13f, 0xFF536176.toInt()))
         summary.addView(label("Начислено всего", 13f, 0xFF68758A.toInt()))
-        summary.addView(label(money(earnings) + " сом", 30f, 0xFF087B58.toInt(), true))
+        summary.addView(label(money(earnings) + " сом", 25f, 0xFF087B58.toInt(), true))
         summary.addView(label("Средний заработок в календарный день", 13f, 0xFF68758A.toInt()))
-        summary.addView(label(money(averagePerDay) + " сом/день", 22f, 0xFF1557A6.toInt(), true))
-        summary.addView(label("Чистая продукция: " + qty(cleanTotal) + " кг", 14f, 0xFF26364D.toInt()))
-        summary.addView(label("Брак: " + qty(scrapTotal) + " кг", 14f, 0xFF26364D.toInt()))
+        summary.addView(label(money(averagePerDay) + " сом/день", 19f, 0xFF1557A6.toInt(), true))
         summary.addView(label("Календарных дней: $days · Смен внесено: " + entries.size, 12f, 0xFF68758A.toInt()))
         root.addView(summary)
 
