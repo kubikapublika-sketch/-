@@ -2,6 +2,7 @@ package com.procontrol
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.DatePickerDialog
 import android.os.Bundle
 import android.graphics.Typeface
 import android.graphics.Canvas
@@ -35,6 +36,7 @@ class MainActivity : Activity() {
     private var entries = mutableListOf<Entry>()
     private var periodStart = ""
     private var archiveEditing = false
+    private var selectedArchiveIndex = 0
 
     data class Entry(val date: String, val clean: Double, val scrap: Double, val note: String)
 
@@ -96,8 +98,8 @@ class MainActivity : Activity() {
         summary.addView(label(money(earnings) + " сом", 30f, 0xFF087B58.toInt(), true))
         summary.addView(label("Средний заработок в день", 13f, 0xFF68758A.toInt()))
         summary.addView(label(money(averagePerDay) + " сом/день", 22f, 0xFF1557A6.toInt(), true))
-        summary.addView(label("Чистая продукция: " + qty(cleanTotal) + " т", 14f, 0xFF26364D.toInt()))
-        summary.addView(label("Брак: " + qty(scrapTotal) + " т", 14f, 0xFF26364D.toInt()))
+        summary.addView(label("Чистая продукция: " + qty(cleanTotal) + " кг", 14f, 0xFF26364D.toInt()))
+        summary.addView(label("Брак: " + qty(scrapTotal) + " кг", 14f, 0xFF26364D.toInt()))
         summary.addView(label("Прошло дней: " + days + " · Смен внесено: " + entries.size, 12f, 0xFF68758A.toInt()))
         summary.addView(label("Период: " + formatDate(periodStart) + " - " + formatDate(dateFormat.format(Date())), 12f, 0xFF68758A.toInt()))
         root.addView(summary)
@@ -106,40 +108,36 @@ class MainActivity : Activity() {
         addTitle.setPadding(0, dp(18), 0, dp(8))
         root.addView(addTitle)
         val form = card()
-        val dateInput = EditText(this).apply {
-            hint = "ГГГГ-ММ-ДД"; setSingleLine(); setText(dateFormat.format(Date())); textSize = 15f
+        var selectedDate = dateFormat.format(Date())
+        val dateButton = Button(this).apply {
+            text = formatDate(selectedDate)
+            setOnClickListener { showDatePicker(selectedDate) { picked -> selectedDate = picked; text = formatDate(picked) } }
         }
-        val cleanInput = numberInput("Тонны чистой продукции")
-        val scrapInput = numberInput("Тонны брака")
+        val cleanInput = numberInput("Килограммы чистой продукции").apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER }
+        val scrapInput = numberInput("Килограммы брака").apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER }
         val noteInput = EditText(this).apply { hint = "Комментарий (необязательно)"; textSize = 15f }
-        form.addView(fieldCaption("Дата")); form.addView(dateInput, matchWrap())
-        form.addView(fieldCaption("Чистая продукция, т")); form.addView(cleanInput, matchWrap())
-        form.addView(fieldCaption("Брак, т")); form.addView(scrapInput, matchWrap())
+        form.addView(fieldCaption("Дата смены")); form.addView(dateButton, matchWrap())
+        form.addView(fieldCaption("Чистая продукция, кг")); form.addView(cleanInput, matchWrap())
+        form.addView(fieldCaption("Брак, кг")); form.addView(scrapInput, matchWrap())
         form.addView(fieldCaption("Комментарий")); form.addView(noteInput, matchWrap())
         form.addView(Button(this).apply {
             text = "Сохранить день"
             setOnClickListener {
-                val date = dateInput.text.toString().trim()
-                val clean = cleanInput.text.toString().replace(',', '.').toDoubleOrNull()
-                val scrap = scrapInput.text.toString().replace(',', '.').toDoubleOrNull()
-                if (!validDate(date)) { toast("Проверь дату: ГГГГ-ММ-ДД"); return@setOnClickListener }
-                if (clean == null || scrap == null || clean < 0 || scrap < 0) {
+                val date = selectedDate
+                val cleanKg = cleanInput.text.toString().toLongOrNull()
+                val scrapKg = scrapInput.text.toString().toLongOrNull()
+                val clean = (cleanKg ?: -1L) / 1000.0
+                val scrap = (scrapKg ?: -1L) / 1000.0
+                if (cleanKg == null || scrapKg == null || clean < 0 || scrap < 0) {
                     toast("Введи оба значения. Ноль тоже можно."); return@setOnClickListener
                 }
-                if (entries.any { it.date == date }) { toast("За эту дату запись уже существует"); return@setOnClickListener }
+                if (date < periodStart || date > dateFormat.format(Date())) { toast("Выбери дату внутри открытого периода"); return@setOnClickListener }
+                if (allKnownDates().contains(date)) { toast("За эту дату запись уже существует"); return@setOnClickListener }
                 val newEntry = Entry(date, clean, scrap, noteInput.text.toString().trim())
-                if (date < periodStart) {
-                    if (!archiveEditing) { toast("Для добавления прошлых дат включи редактирование архива в настройках."); return@setOnClickListener }
-                    val history = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
-                    history.put(JSONObject().put("date", newEntry.date).put("clean", newEntry.clean).put("scrap", newEntry.scrap).put("note", newEntry.note))
-                    prefs.edit().putString("historical_entries", history.toString()).apply()
-                    toast("Историческая смена сохранена")
-                } else {
-                    entries.add(newEntry)
-                    entries.sortByDescending { it.date }
-                    saveEntries()
-                    toast("Запись сохранена")
-                }
+                entries.add(newEntry)
+                entries.sortByDescending { it.date }
+                saveEntries()
+                toast("Запись сохранена")
                 render()
             }
         }, matchWrap())
@@ -158,7 +156,7 @@ class MainActivity : Activity() {
         } else entries.forEach { entry ->
             val row = card()
             row.addView(label(formatDate(entry.date), 15f, 0xFF17243A.toInt(), true))
-            row.addView(label("Чистая: " + qty(entry.clean) + " т · Брак: " + qty(entry.scrap) + " т", 13f, 0xFF34445B.toInt()))
+            row.addView(label("Чистая: " + qty(entry.clean) + " т · Брак: " + qty(entry.scrap) + " кг", 13f, 0xFF34445B.toInt()))
             row.addView(label(money(entry.clean * cleanRate + entry.scrap * scrapRate) + " сом", 16f, 0xFF087B58.toInt(), true))
             if (entry.note.isNotBlank()) row.addView(label(entry.note, 12f, 0xFF68758A.toInt()))
             row.addView(Button(this).apply {
@@ -181,8 +179,8 @@ class MainActivity : Activity() {
 
     private fun editEntry(entry: Entry) {
         val dateInput = EditText(this).apply { setText(entry.date); hint = "ГГГГ-ММ-ДД" }
-        val cleanInput = numberInput("Чистая продукция, т").apply { setText(entry.clean.toString()) }
-        val scrapInput = numberInput("Брак, т").apply { setText(entry.scrap.toString()) }
+        val cleanInput = numberInput("Чистая продукция, кг").apply { setText((entry.clean * 1000).toLong().toString()) }
+        val scrapInput = numberInput("Брак, кг").apply { setText((entry.scrap * 1000).toLong().toString()) }
         val noteInput = EditText(this).apply { setText(entry.note); hint = "Комментарий" }
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -208,7 +206,7 @@ class MainActivity : Activity() {
                     toast("За эту дату запись уже существует"); return@setPositiveButton
                 }
                 entries.remove(entry)
-                entries.add(Entry(date, clean, scrap, noteInput.text.toString().trim()))
+                entries.add(Entry(date, clean / 1000.0, scrap / 1000.0, noteInput.text.toString().trim()))
                 entries.sortByDescending { it.date }
                 saveEntries()
                 render()
@@ -225,7 +223,7 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this)
             .setTitle("Закрыть расчётный период?")
             .setMessage("Период: " + formatDate(periodStart) + " – " + formatDate(end) +
-                "\nЧистая продукция: " + qty(clean) + " т\nБрак: " + qty(scrap) + " т" +
+                "\nЧистая продукция: " + qty(clean) + " т\nБрак: " + qty(scrap) + " кг" +
                 "\nНачислено: " + money(pay) + " сом\nСреднее за день: " + money(average) +
                 " сом (" + days + " календарных дней)\n\nЗаписи попадут в архив, начнётся новый период.")
             .setNegativeButton("Отмена", null)
@@ -236,7 +234,9 @@ class MainActivity : Activity() {
                     recordArray.put(JSONObject().put("date", e.date).put("clean", e.clean)
                         .put("scrap", e.scrap).put("note", e.note))
                 }
-                archive.put(JSONObject().put("start", periodStart).put("end", end)
+                val number = nextPeriodNumber(archive)
+                archive.put(JSONObject().put("number", number).put("name", "Период $number")
+                    .put("start", periodStart).put("end", end)
                     .put("clean", clean).put("scrap", scrap).put("records", recordArray))
                 val nextStart = nextCalendarDate(end)
                 prefs.edit().putString("archive", archive.toString()).putString("entries", "[]")
@@ -368,7 +368,7 @@ class MainActivity : Activity() {
             for (j in 0 until history.length()) {
                 val e = history.optJSONObject(j) ?: continue
                 val line = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-                line.addView(label(formatDate(e.optString("date")) + " · " + qty(e.optDouble("clean")) + " т · брак " + qty(e.optDouble("scrap")) + " т", 12f, 0xFF34445B.toInt()), LinearLayout.LayoutParams(0, -2, 1f))
+                line.addView(label(formatDate(e.optString("date")) + " · " + qty(e.optDouble("clean")) + " т · брак " + qty(e.optDouble("scrap")) + " кг", 12f, 0xFF34445B.toInt()), LinearLayout.LayoutParams(0, -2, 1f))
                 if (archiveEditing) line.addView(Button(this).apply {
                     text = "⋮"
                     setOnClickListener {
@@ -405,17 +405,19 @@ class MainActivity : Activity() {
                 val pay = clean * cleanRate + scrap * scrapRate
                 val average = if (days > 0) pay / days else 0.0
                 val record = card()
-                record.addView(label(formatDate(start) + " - " + formatDate(end), 15f, 0xFF17243A.toInt(), true))
+                val periodNumber = item.optInt("number", i + 1)
+                record.addView(label(item.optString("name", "Период $periodNumber"), 17f, 0xFF17243A.toInt(), true))
+                record.addView(label(formatDate(start) + " - " + formatDate(end), 13f, 0xFF68758A.toInt()))
                 record.addView(label("Прошло дней: " + days, 13f, 0xFF68758A.toInt()))
                 record.addView(label("Заработано: " + money(pay) + " сом", 19f, 0xFF087B58.toInt(), true))
                 record.addView(label("В среднем: " + money(average) + " сом/день", 15f, 0xFF1557A6.toInt(), true))
-                record.addView(label("Чистая продукция: " + qty(clean) + " т · Брак: " + qty(scrap) + " т", 12f, 0xFF68758A.toInt()))
+                record.addView(label("Чистая продукция: " + qty(clean) + " т · Брак: " + qty(scrap) + " кг", 12f, 0xFF68758A.toInt()))
                 val saved = item.optJSONArray("records") ?: JSONArray()
                 if (saved.length() > 0) {
                     for (j in 0 until saved.length()) {
                         val e = saved.optJSONObject(j) ?: continue
                         val line = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-                        line.addView(label(formatDate(e.optString("date")) + " · " + qty(e.optDouble("clean")) + " т · брак " + qty(e.optDouble("scrap")) + " т", 12f, 0xFF34445B.toInt()), LinearLayout.LayoutParams(0, -2, 1f))
+                        line.addView(label(formatDate(e.optString("date")) + " · " + qty(e.optDouble("clean")) + " т · брак " + qty(e.optDouble("scrap")) + " кг", 12f, 0xFF34445B.toInt()), LinearLayout.LayoutParams(0, -2, 1f))
                         if (archiveEditing) line.addView(Button(this).apply {
                             text = "⋮"
                             setOnClickListener {
@@ -563,6 +565,11 @@ class MainActivity : Activity() {
 
     private fun allStoredDatesExcept(except: String): Set<String> {
         val dates = entries.map { it.date }.filter { it != except }.toMutableSet()
+        val history = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
+        for (i in 0 until history.length()) {
+            val d = history.optJSONObject(i)?.optString("date") ?: ""
+            if (d != except) dates.add(d)
+        }
         val a = JSONArray(prefs.getString("archive", "[]") ?: "[]")
         for (i in 0 until a.length()) {
             val records = a.optJSONObject(i)?.optJSONArray("records") ?: continue
@@ -757,6 +764,21 @@ class MainActivity : Activity() {
     }
 
     private fun calendarDays(): Int = calendarDaysBetween(periodStart, dateFormat.format(Date()))
+
+    private fun showDatePicker(initial: String, onPicked: (String) -> Unit) {
+        val cal = java.util.Calendar.getInstance()
+        try { cal.time = dateFormat.parse(initial) ?: Date() } catch (_: Exception) {}
+        DatePickerDialog(this, { _, year, month, day ->
+            val picked = java.util.Calendar.getInstance().apply { set(year, month, day) }
+            onPicked(dateFormat.format(picked.time))
+        }, cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH), cal.get(java.util.Calendar.DAY_OF_MONTH)).show()
+    }
+
+    private fun nextPeriodNumber(archive: JSONArray): Int {
+        var max = 0
+        for (i in 0 until archive.length()) max = maxOf(max, archive.optJSONObject(i)?.optInt("number", i + 1) ?: 0)
+        return max + 1
+    }
     private fun validDate(value: String): Boolean {
         return try {
             if (!value.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) false
@@ -782,7 +804,7 @@ class MainActivity : Activity() {
     }
     private fun matchWrap() = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) }
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
-    private fun qty(value: Double) = String.format(Locale("ru"), "%.2f", value)
+    private fun qty(value: Double) = String.format(Locale("ru"), "%,.0f", value * 1000.0)
     private fun money(value: Double) = String.format(Locale("ru"), "%.2f", value)
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
 }
