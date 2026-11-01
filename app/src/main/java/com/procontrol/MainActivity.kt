@@ -127,11 +127,19 @@ class MainActivity : Activity() {
                     toast("Введи оба значения. Ноль тоже можно."); return@setOnClickListener
                 }
                 if (entries.any { it.date == date }) { toast("За эту дату запись уже существует"); return@setOnClickListener }
-                if (date < periodStart) { toast("Эта дата относится к закрытому периоду. Включи редактирование архива в настройках."); return@setOnClickListener }
-                entries.add(Entry(date, clean, scrap, noteInput.text.toString().trim()))
-                entries.sortByDescending { it.date }
-                saveEntries()
-                toast("Запись сохранена")
+                val newEntry = Entry(date, clean, scrap, noteInput.text.toString().trim())
+                if (date < periodStart) {
+                    if (!archiveEditing) { toast("Для добавления прошлых дат включи редактирование архива в настройках."); return@setOnClickListener }
+                    val history = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
+                    history.put(JSONObject().put("date", newEntry.date).put("clean", newEntry.clean).put("scrap", newEntry.scrap).put("note", newEntry.note))
+                    prefs.edit().putString("historical_entries", history.toString()).apply()
+                    toast("Историческая смена сохранена")
+                } else {
+                    entries.add(newEntry)
+                    entries.sortByDescending { it.date }
+                    saveEntries()
+                    toast("Запись сохранена")
+                }
                 render()
             }
         }, matchWrap())
@@ -242,6 +250,11 @@ class MainActivity : Activity() {
 
     private fun allEntries(): List<Entry> {
         val result = entries.toMutableList()
+        val history = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
+        for (i in 0 until history.length()) {
+            val o = history.optJSONObject(i) ?: continue
+            result.add(Entry(o.optString("date"), o.optDouble("clean"), o.optDouble("scrap"), o.optString("note")))
+        }
         val a = JSONArray(prefs.getString("archive", "[]") ?: "[]")
         for (i in 0 until a.length()) {
             val records = a.optJSONObject(i)?.optJSONArray("records") ?: continue
@@ -347,8 +360,40 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(8), dp(16), dp(8))
         }
+        val history = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
+        if (history.length() > 0 || archiveEditing) {
+            val historicalCard = card()
+            historicalCard.addView(label("Исторические смены", 15f, 0xFF17243A.toInt(), true))
+            historicalCard.addView(label("Записи за даты до начала работы с программой. Они не входят в текущий расчётный период.", 12f, 0xFF68758A.toInt()))
+            for (j in 0 until history.length()) {
+                val e = history.optJSONObject(j) ?: continue
+                val line = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+                line.addView(label(formatDate(e.optString("date")) + " · " + qty(e.optDouble("clean")) + " т · брак " + qty(e.optDouble("scrap")) + " т", 12f, 0xFF34445B.toInt()), LinearLayout.LayoutParams(0, -2, 1f))
+                if (archiveEditing) line.addView(Button(this).apply {
+                    text = "⋮"
+                    setOnClickListener {
+                        AlertDialog.Builder(this@MainActivity).setItems(arrayOf("Изменить запись", "Удалить запись")) { _, choice ->
+                            if (choice == 0) editHistoricalRecord(j)
+                            else AlertDialog.Builder(this@MainActivity).setMessage("Удалить историческую смену?")
+                                .setNegativeButton("Отмена", null).setPositiveButton("Удалить") { _, _ ->
+                                    val updated = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
+                                    updated.remove(j)
+                                    prefs.edit().putString("historical_entries", updated.toString()).apply()
+                                    showArchive()
+                                }.show()
+                        }.show()
+                    }
+                })
+                historicalCard.addView(line)
+            }
+            if (archiveEditing) historicalCard.addView(Button(this).apply {
+                text = "Добавить историческую смену"
+                setOnClickListener { addHistoricalRecord() }
+            })
+            box.addView(historicalCard)
+        }
         if (archive.length() == 0) {
-            box.addView(label("Архив пока пуст. Закрой расчётный период, и его результат появится здесь.", 14f, 0xFF68758A.toInt()))
+            if (history.length() == 0) box.addView(label("Архив пока пуст. Закрой расчётный период, и его результат появится здесь.", 14f, 0xFF68758A.toInt()))
         } else {
             for (i in archive.length() - 1 downTo 0) {
                 val item = archive.getJSONObject(i)
@@ -407,6 +452,51 @@ class MainActivity : Activity() {
         val scroll = ScrollView(this).apply { addView(box) }
         AlertDialog.Builder(this).setTitle("История расчётных периодов").setView(scroll)
             .setPositiveButton("Закрыть", null).show()
+    }
+
+    private fun addHistoricalRecord() {
+        val date = EditText(this).apply { hint = "ГГГГ-ММ-ДД" }
+        val clean = numberInput("Чистая продукция, т")
+        val scrap = numberInput("Брак, т")
+        val note = EditText(this).apply { hint = "Комментарий (необязательно)" }
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), 0)
+            addView(fieldCaption("Дата")); addView(date); addView(fieldCaption("Чистая, т")); addView(clean)
+            addView(fieldCaption("Брак, т")); addView(scrap); addView(fieldCaption("Комментарий")); addView(note) }
+        AlertDialog.Builder(this).setTitle("Добавить историческую смену").setView(box)
+            .setNegativeButton("Отмена", null).setPositiveButton("Сохранить") { _, _ ->
+                val d = date.text.toString().trim()
+                val c = clean.text.toString().replace(',', '.').toDoubleOrNull()
+                val b = scrap.text.toString().replace(',', '.').toDoubleOrNull()
+                if (!validDate(d) || c == null || b == null || c < 0 || b < 0) { toast("Проверь дату и тоннаж"); return@setPositiveButton }
+                if (allKnownDates().contains(d)) { toast("За эту дату запись уже существует"); return@setPositiveButton }
+                val h = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
+                h.put(JSONObject().put("date", d).put("clean", c).put("scrap", b).put("note", note.text.toString().trim()))
+                prefs.edit().putString("historical_entries", h.toString()).apply()
+                showArchive()
+            }.show()
+    }
+
+    private fun editHistoricalRecord(index: Int) {
+        val h = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
+        val old = h.optJSONObject(index) ?: return
+        val date = EditText(this).apply { setText(old.optString("date")) }
+        val clean = numberInput("Чистая продукция, т").apply { setText(old.optDouble("clean").toString()) }
+        val scrap = numberInput("Брак, т").apply { setText(old.optDouble("scrap").toString()) }
+        val note = EditText(this).apply { setText(old.optString("note")) }
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), 0)
+            addView(fieldCaption("Дата")); addView(date); addView(fieldCaption("Чистая, т")); addView(clean)
+            addView(fieldCaption("Брак, т")); addView(scrap); addView(fieldCaption("Комментарий")); addView(note) }
+        AlertDialog.Builder(this).setTitle("Изменить историческую смену").setView(box)
+            .setNegativeButton("Отмена", null).setPositiveButton("Сохранить") { _, _ ->
+                val d = date.text.toString().trim()
+                val c = clean.text.toString().replace(',', '.').toDoubleOrNull()
+                val b = scrap.text.toString().replace(',', '.').toDoubleOrNull()
+                if (!validDate(d) || c == null || b == null || c < 0 || b < 0) { toast("Проверь дату и тоннаж"); return@setPositiveButton }
+                if (allKnownDatesExcept(old.optString("date")).contains(d)) { toast("За эту дату уже есть запись"); return@setPositiveButton }
+                h.put(index, JSONObject().put("date", d).put("clean", c).put("scrap", b).put("note", note.text.toString().trim()))
+                prefs.edit().putString("historical_entries", h.toString()).apply()
+                showArchive()
+            }.show()
     }
 
     private fun editArchivedRecord(periodIndex: Int, recordIndex: Int) {
@@ -520,6 +610,14 @@ class MainActivity : Activity() {
             safePeriods.put(JSONObject().put("a", p.optString("start")).put("b", p.optString("end")).put("r", safeRecords))
         }
         root.put("periods", safePeriods)
+        val safeHistory = JSONArray()
+        val historical = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
+        for (i in 0 until historical.length()) {
+            val e = historical.optJSONObject(i) ?: continue
+            safeHistory.put(JSONObject().put("d", e.optString("date")).put("c", e.optDouble("clean"))
+                .put("s", e.optDouble("scrap")).put("n", e.optString("note")))
+        }
+        root.put("history", safeHistory)
         try {
             val raw = root.toString().toByteArray(Charsets.UTF_8)
             val zipped = ByteArrayOutputStream().also { out -> DeflaterOutputStream(out).use { it.write(raw) } }.toByteArray()
@@ -555,6 +653,7 @@ class MainActivity : Activity() {
                         val e = ca.getJSONObject(i); newCurrent.add(Entry(e.getString("d"), e.optDouble("c"), e.optDouble("s"), e.optString("n")))
                     }
                     val newPeriods = root.optJSONArray("periods") ?: JSONArray()
+                    val newHistory = root.optJSONArray("history") ?: JSONArray()
                     var count = 0
                     val known = allKnownDates()
                     newCurrent.forEach { if (!known.contains(it.date)) count++ }
@@ -562,6 +661,7 @@ class MainActivity : Activity() {
                         val p = newPeriods.getJSONObject(i); val rs = p.optJSONArray("r") ?: JSONArray()
                         for (j in 0 until rs.length()) if (!known.contains(rs.getJSONObject(j).optString("d"))) count++
                     }
+                    for (i in 0 until newHistory.length()) if (!known.contains(newHistory.getJSONObject(i).optString("d"))) count++
                     AlertDialog.Builder(this).setTitle("Подтвердить импорт")
                         .setMessage("Новых записей: $count. Существующие даты не будут перезаписаны.")
                         .setNegativeButton("Отмена", null).setPositiveButton("Импортировать") { _, _ ->
@@ -593,7 +693,14 @@ class MainActivity : Activity() {
                                 for (j in 0 until records.length()) { cleanSum += records.getJSONObject(j).optDouble("clean"); scrapSum += records.getJSONObject(j).optDouble("scrap") }
                                 target.put("clean", cleanSum).put("scrap", scrapSum)
                             }
-                            prefs.edit().putString("archive", archive.toString()).apply()
+                            val history = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
+                            for (i in 0 until newHistory.length()) {
+                                val e = newHistory.getJSONObject(i); val d = e.getString("d")
+                                if (known.add(d)) history.put(JSONObject().put("date", d).put("clean", e.optDouble("c"))
+                                    .put("scrap", e.optDouble("s")).put("note", e.optString("n")))
+                            }
+                            prefs.edit().putString("archive", archive.toString())
+                                .putString("historical_entries", history.toString()).apply()
                             entries.sortByDescending { it.date }; saveEntries()
                             toast("Импорт завершён"); render()
                         }.show()
@@ -603,6 +710,8 @@ class MainActivity : Activity() {
 
     private fun allKnownDates(): MutableSet<String> {
         val dates = entries.map { it.date }.toMutableSet()
+        val history = JSONArray(prefs.getString("historical_entries", "[]") ?: "[]")
+        for (i in 0 until history.length()) dates.add(history.optJSONObject(i)?.optString("date") ?: "")
         val a = JSONArray(prefs.getString("archive", "[]") ?: "[]")
         for (i in 0 until a.length()) {
             val records = a.optJSONObject(i)?.optJSONArray("records") ?: continue
