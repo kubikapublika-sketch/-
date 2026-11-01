@@ -139,14 +139,52 @@ class MainActivity : Activity() {
             row.addView(Button(this).apply {
                 text = "⋮"
                 setOnClickListener {
-                    AlertDialog.Builder(this@MainActivity).setMessage("Удалить запись за " + formatDate(entry.date) + "?")
-                        .setNegativeButton("Отмена", null)
-                        .setPositiveButton("Удалить") { _, _ -> entries.remove(entry); saveEntries(); render() }.show()
+                    AlertDialog.Builder(this@MainActivity)
+                        .setItems(arrayOf("Изменить запись", "Удалить запись")) { _, choice ->
+                            if (choice == 0) editEntry(entry)
+                            else AlertDialog.Builder(this@MainActivity)
+                                .setMessage("Удалить запись за " + formatDate(entry.date) + "?")
+                                .setNegativeButton("Отмена", null)
+                                .setPositiveButton("Удалить") { _, _ -> entries.remove(entry); saveEntries(); render() }.show()
+                        }.show()
                 }
             })
             root.addView(row)
         }
         setContentView(ScrollView(this).apply { addView(root) })
+    }
+
+    private fun editEntry(entry: Entry) {
+        val dateInput = EditText(this).apply { setText(entry.date); hint = "ГГГГ-ММ-ДД" }
+        val cleanInput = numberInput("Чистая продукция, т").apply { setText(entry.clean.toString()) }
+        val scrapInput = numberInput("Брак, т").apply { setText(entry.scrap.toString()) }
+        val noteInput = EditText(this).apply { setText(entry.note); hint = "Комментарий" }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+            addView(fieldCaption("Дата")); addView(dateInput)
+            addView(fieldCaption("Чистая продукция, т")); addView(cleanInput)
+            addView(fieldCaption("Брак, т")); addView(scrapInput)
+            addView(fieldCaption("Комментарий")); addView(noteInput)
+        }
+        AlertDialog.Builder(this).setTitle("Изменить запись").setView(box)
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Сохранить") { _, _ ->
+                val date = dateInput.text.toString().trim()
+                val clean = cleanInput.text.toString().replace(',', '.').toDoubleOrNull()
+                val scrap = scrapInput.text.toString().replace(',', '.').toDoubleOrNull()
+                if (!validDate(date) || clean == null || scrap == null || clean < 0 || scrap < 0) {
+                    toast("Проверь дату и значения"); return@setPositiveButton
+                }
+                if (entries.any { it.date == date && it.date != entry.date }) {
+                    toast("За эту дату запись уже существует"); return@setPositiveButton
+                }
+                entries.remove(entry)
+                entries.add(Entry(date, clean, scrap, noteInput.text.toString().trim()))
+                entries.sortByDescending { it.date }
+                saveEntries()
+                render()
+            }.show()
     }
 
     private fun closePeriod() {
