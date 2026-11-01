@@ -57,7 +57,7 @@ class MainActivity : Activity() {
         loadEntries()
         val todayForMigration = dateFormat.format(Date())
         val earliestCurrentEntry = entries.minOfOrNull { it.date }
-        if (periodStart == todayForMigration && earliestCurrentEntry != null && earliestCurrentEntry < periodStart) {
+        if (earliestCurrentEntry != null && earliestCurrentEntry < periodStart) {
             periodStart = earliestCurrentEntry
             prefs.edit().putString("period_start", periodStart).apply()
         }
